@@ -1,0 +1,9 @@
+**
+!Dockerfile
+!.dockerignore
+!deploy/
+!deploy/README.md
+!deploy/entrypoint.mjs
+!deploy/validate-release.mjs
+!deploy/stage/
+!deploy/stage/**

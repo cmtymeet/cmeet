@@ -1,0 +1,48 @@
+name: Release image native runtime contract
+on:
+  workflow_dispatch:
+    inputs:
+      package_run_id:
+        description: Successful reviewed website source-preparation run
+        type: string
+        required: true
+      package_source_sha:
+        description: Exact original cmeet commit of that preparation
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI_COMMIT_SHA: ${{ github.sha }}
+      GH_TOKEN: ${{ github.token }}
+      REUSE_SOURCE_RUN: ${{ inputs.package_run_id }}
+      REUSE_SOURCE_SHA: ${{ inputs.package_source_sha }}
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Build and check the isolated runtime image
+        env:
+          ARTIFACT_ROOT: ${{ runner.temp }}/image-contract
+        run: bash .ci/image-checks.sh
+      - name: Retain public provenance and bounded runtime report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-contract-${{ github.sha }}
+          path: ${{ runner.temp }}/image-contract
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

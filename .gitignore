@@ -3,6 +3,7 @@ vendor/
 dist/
 .ci-work/
 artifacts/
+deploy/stage/
 *.tgz
 .env
 .env.*
