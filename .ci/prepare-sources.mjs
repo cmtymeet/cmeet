@@ -79,6 +79,13 @@ async function nativeBackend() {
   const nativeEvidence = { directory, built: false };
   evidence.nativeBackend = nativeEvidence;
   try {
+    if (resolveDependencies) {
+      // Source-pin changes may require new transitive dependencies. Resolve
+      // only the two changed workspace libraries and retain that exact graph.
+      await run('cmeet-native-update', 'cargo', ['update', '--manifest-path', join(directory, 'Cargo.toml'),
+        '--package', 'cfrm', '--package', 'cmsg'], root);
+      evidence.resolvedCargoLocks.push('cmeet-native-pins');
+    }
     const lockDigest = await ensureCargoLock('cmeet-native', join(directory, 'Cargo.toml'), root);
     await run('cmeet-native-build', 'cargo', ['build', '--locked', '--release', '--manifest-path', join(directory, 'Cargo.toml')], root, process.env, 1_500_000);
     assert.equal(sha256(await readFile(lock)), lockDigest, 'Native backend lock must remain unchanged');

@@ -173,13 +173,28 @@ function requireCurrentEnrollment() {
   if (!verified || verified.status !== 'eligible' || at < verified.publication.notBefore
       || at >= verified.publication.expiresAt) throw new Error('Current common enrollment required');
 }
-async function peerContext(nativeInput, acceptance) {
+async function peerContext(nativeInput, acceptance, event = null) {
   requireCurrentEnrollment();
   const native = typeof nativeInput === 'string' ? JSON.parse(nativeInput) : structuredClone(nativeInput);
   exact(native, ['now', 'devicePublicKey', 'expected']);
   const expected = native.expected;
   if (!equal(expected.community, Array.from(community))) throw new Error('Peer community mismatch');
   const owner = encode(Uint8Array.from(expected.owner));
+  const ownerIsLocal = owner === ownerId;
+  if (!ownerIsLocal && encode(Uint8Array.from(expected.peer)) !== ownerId) throw new Error('Peer reservation participant');
+  // cmsg exposes both directions of one reservation. For the local account
+  // actor, a context owned by the peer is the opposite role and names the
+  // local member as its peer. Resolve that context back to the authenticated
+  // retained slot before selecting its historical authority.
+  const actorRole = ownerIsLocal ? expected.role : 1 - expected.role;
+  const actorPeer = ownerIsLocal ? expected.peer : expected.owner;
+  if (![0, 1].includes(actorRole) || !Array.isArray(actorPeer) || actorPeer.length !== 32) throw new Error('Peer reservation role');
+  const retained = actor.reservation({ role: actorRole, peer: Uint8Array.from(actorPeer),
+    nonce: Uint8Array.from(expected.nonce), group: Uint8Array.from(expected.group),
+    contactPolicy: Uint8Array.from(expected.contactPolicyDigest), openedAt: expected.openedAt, expiresAt: expected.expiresAt });
+  if ((ownerIsLocal && !retained) || (event !== null && (!ownerIsLocal || retained?.event !== BigInt(event).toString()))) {
+    throw new Error('Peer reservation is not retained');
+  }
   const index = verified.entries.findIndex(entry => entry.memberId === owner);
   const wrapper = verified.publication.delegations.find(item => item.entry.memberId === owner);
   if (index < 0 || !wrapper) throw new Error('Peer is absent from verified enrollment');
@@ -188,15 +203,21 @@ async function peerContext(nativeInput, acceptance) {
   if (hex(digest) !== verified.entries[index].delegationDigest
       || !equal(decode(delegation.authorization.devicePublicKey, 32), native.devicePublicKey)
       || delegation.accountPublicKey !== verified.entries[index].accountKey) throw new Error('Peer device differs from enrolled authority');
+  // A recipient verifies the offered outgoing proof before consenting to any
+  // local reservation. Only that initial peer path uses the current roster.
+  // Once a local slot exists, both directions retain their original authority.
+  const retainedAuthority = retained ? (ownerIsLocal ? retained.ownerAuthority : retained.peerAuthority)
+    : Array.from(field(verified.checkpoint.entries[index].leaf));
+  if (!Array.isArray(retainedAuthority) || retainedAuthority.length !== 32) throw new Error('Peer reservation authority');
   return { now: native.now, expected: { ...expected,
-    ownerAuthority: Array.from(field(verified.checkpoint.entries[index].leaf)), statePolicyDigest: Array.from(stateDigest),
+    ownerAuthority: retainedAuthority, statePolicyDigest: Array.from(stateDigest),
     stateVersion: acceptance.statement.nextVersion, stateCommitment: acceptance.statement.nextState },
     accountPolicy: settings.policy, enrollmentRoot: verified.publication.root,
     authorityExpiresAt: Math.min(delegation.expiresAt, delegation.admission.expiresAt, delegation.authorization.expiresAt,
       verified.publication.expiresAt) };
 }
 async function provePeer(event, context) {
-  const result = await actor.provePeer(event, await peerContext(context, actor.accepted()), { expiresAt: requestExpiry() });
+  const result = await actor.provePeer(event, await peerContext(context, actor.accepted(), event), { expiresAt: requestExpiry() });
   requireCurrentEnrollment();
   return result;
 }
@@ -306,7 +327,8 @@ async function run(method, input) {
     if (!retained) {
       const result = await actor.reserve({ ...reservation, peerIndex: actor.peerIndex(input.peerId) },
         { expiresAt: requestExpiry(input.role === 0 ? input.openedAt : now()) });
-      retained = { event: result.event, phase: 1 };
+      retained = actor.reservation({ ...reservation, peer: Uint8Array.from(expected.peer) });
+      if (!retained || retained.event !== BigInt(result.event).toString()) throw new Error('Created reservation is not retained');
     }
     if (retained.phase === 1) await actor.activate(retained.event, { expiresAt: requestExpiry() });
     else if (retained.phase !== 2) throw new Error('Reservation is already retired');

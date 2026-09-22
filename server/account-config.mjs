@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { loadArtifacts } from 'cfrm/accounting';
 import { nodeArtifactOptions } from 'cfrm/accounting/node-verifier';
 
-const accountKeys = ['databasePath', 'operatorPrivateKeyPath', 'policy', 'maxRequestBytes', 'verifier', 'checkpoints'];
+const accountKeys = ['operatorPrivateKeyPath', 'policy', 'maxRequestBytes', 'verifier', 'checkpoints'];
 const verifierKeys = ['artifactConfigPath', 'scope', 'timeoutMillis', 'maximumParallel', 'maxProofBytes', 'nodeHeapMegabytes'];
 const limitKeys = ['maxArtifactBytes', 'maxTotalBytes', 'maxProofBytes', 'memoryPages'];
 const exact = (value, keys) => value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -20,7 +20,7 @@ const absolute = value => typeof value === 'string' && isAbsolute(value);
  * enrollment tree. This function checks their representation, not enrollment
  * signatures, and must never receive member-supplied configuration.
  */
-export async function prepareAccountConfig(input) {
+export async function prepareAccountConfig(input, { storageDriver = 'sqlite' } = {}) {
   const config = structuredClone(input);
   const suppliedNodePath = config?.verifier?.nodePath;
   const suppliedScriptPath = config?.verifier?.scriptPath;
@@ -28,7 +28,9 @@ export async function prepareAccountConfig(input) {
     delete config.verifier.nodePath;
     delete config.verifier.scriptPath;
   }
-  if (!exact(config, accountKeys) || !absolute(config.databasePath)
+  if (!['sqlite', 'turso'].includes(storageDriver)
+      || !exact(config, storageDriver === 'sqlite' ? [...accountKeys, 'databasePath'] : accountKeys)
+      || (storageDriver === 'sqlite' && !absolute(config.databasePath))
       || !absolute(config.operatorPrivateKeyPath) || !positive(config.maxRequestBytes)
       || !exact(config.verifier, verifierKeys) || !Array.isArray(config.checkpoints)) {
     throw new Error('Explicit operator account configuration required');

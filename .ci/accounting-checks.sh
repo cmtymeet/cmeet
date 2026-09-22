@@ -77,10 +77,22 @@ await writeFile(join(artifacts, 'prepared-inputs.json'), JSON.stringify({ source
   packageSource: process.env.PACKAGE_SOURCE_SHA, sources, packages: manifest.packages, runtimeManifestSha256: pin, artifactSha256: expected }, null, 2) + '\n');
 JS
 npm ci --ignore-scripts --no-audit --no-fund 2>&1 | tee "$ARTIFACT_ROOT/npm-install.log"
-if ! test -f .ci/accounting-native/Cargo.lock; then
-  test "${RESOLVE_DEPENDENCIES:-0}" = 1
-  cargo generate-lockfile --manifest-path .ci/accounting-native/Cargo.toml 2>&1 | tee "$ARTIFACT_ROOT/native-resolution.log"
+if test "${RESOLVE_DEPENDENCIES:-0}" = 1; then
+  # A retained binary requires its identical lock. Explicit source-pin updates
+  # resolve only these libraries and newly required dependencies, never a full
+  # unconstrained Cargo graph refresh.
+  test -z "${REUSE_ACCOUNT_NATIVE_RUN:-}"
+  if test -f .ci/accounting-native/Cargo.lock; then
+    cp .ci/accounting-native/Cargo.lock "$ARTIFACT_ROOT/accounting-native-before-Cargo.lock"
+    cargo update --manifest-path .ci/accounting-native/Cargo.toml --package cfrm --package cmsg \
+      2>&1 | tee "$ARTIFACT_ROOT/native-resolution.log"
+  else
+    cargo generate-lockfile --manifest-path .ci/accounting-native/Cargo.toml \
+      2>&1 | tee "$ARTIFACT_ROOT/native-resolution.log"
+  fi
+  date -u +%FT%TZ > "$ARTIFACT_ROOT/native-resolution-time.txt"
 fi
+test -f .ci/accounting-native/Cargo.lock
 cp .ci/accounting-native/Cargo.lock "$ARTIFACT_ROOT/accounting-native-Cargo.lock"
 cargo fmt --manifest-path .ci/accounting-native/Cargo.toml -- --check
 if test -n "${REUSE_ACCOUNT_NATIVE_RUN:-}"; then

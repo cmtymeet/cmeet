@@ -3,13 +3,21 @@ import { createAccountVerifier } from 'cfrm/accounting';
 import { nodeArtifactOptions } from 'cfrm/accounting/node-verifier';
 import { createEnrollmentService } from 'cfrm/accounting/enrollment-node';
 import { createEnrollmentStore } from 'cfrm/accounting/enrollment-store';
+import { storeConnectionOptions } from './storage.mjs';
 
 // The same pinned cfrm hash runtime derives the common public enrollment tree.
 // Member secrets and proofs are absent from this process's enrollment input.
-export async function composeEnrollment({ config, account, trust, backend, operatorPrivateKey, clock }) {
-  const store = createEnrollmentStore(config);
+export async function composeEnrollment({ config, account, trust, backend, operatorPrivateKey, clock, storage = { driver: 'sqlite' } }) {
+  const connection = storeConnectionOptions(storage, config);
+  const limits = { maxMembers: config.maxMembers, maxRetainedSlots: config.maxRetainedSlots,
+    maxPublicationBytes: config.maxPublicationBytes };
+  const store = storage.driver === 'turso'
+    ? await (await import('cfrm/accounting/enrollment-turso')).createTursoEnrollmentStore({
+      url: connection.url, authToken: connection.authToken, requestTimeoutMs: connection.networkTimeoutMs, ...limits })
+    : createEnrollmentStore({ ...connection, ...limits });
   let runtime, service, queue = Promise.resolve(), closed = false;
   try {
+    if (storage.driver === 'turso' && store.healthy !== true) throw new Error('Turso enrollment readiness contract required');
     runtime = await createAccountVerifier(await nodeArtifactOptions(account.verifier.artifactConfigPath));
     service = createEnrollmentService({
       communityId: trust.communityId, policyDigest: trust.policyDigest,
@@ -26,7 +34,7 @@ export async function composeEnrollment({ config, account, trust, backend, opera
       },
       installCheckpoint: payload => backend.installEnrollmentCheckpoint(payload),
     });
-  } catch (error) { await runtime?.destroy(); store.close(); throw error; }
+  } catch (error) { await runtime?.destroy(); await store.close(); throw error; }
   function call(method, value) {
     if (closed) return Promise.reject(new Error('Enrollment is closed'));
     const input = structuredClone(value);
@@ -35,13 +43,14 @@ export async function composeEnrollment({ config, account, trust, backend, opera
   }
   let closing;
   return Object.freeze({
+    get healthy() { return !closed && store.healthy !== false; },
     enroll: value => call('enroll', value),
     publishCheckpoint: () => call('publishCheckpoint'),
     current: () => call('current'),
     close() {
       if (closing) return closing;
       closed = true;
-      closing = (async () => { await queue; service.close(); await runtime.destroy(); store.close(); })();
+      closing = (async () => { await queue; service.close(); await runtime.destroy(); await store.close(); })();
       return closing;
     },
   });

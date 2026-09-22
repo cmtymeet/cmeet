@@ -14,6 +14,7 @@ use cfrm::{
         KeyAccessRedeemer, KeyAccessRedemption,
     },
     permits::PermitEpoch,
+    storage::RemoteConfig,
     Error as CfrmError,
 };
 use cmsg::{
@@ -26,6 +27,7 @@ use serde_json::{json, Value};
 use std::{
     fs::{self, File},
     io::{self, BufRead, BufReader, Read, Write},
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -68,8 +70,8 @@ struct ValkeyConfigFile {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DiscoveryConfig {
-    control_database_path: String,
-    control_busy_timeout_millis: u64,
+    control_database_path: Option<String>,
+    control_busy_timeout_millis: Option<u64>,
     limits: DiscoveryLimits,
     valkey: ValkeyConfigFile,
 }
@@ -86,8 +88,8 @@ struct PresenceConfig {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct KeyAccessConfig {
-    issuer_database_path: String,
-    redeemer_database_path: String,
+    issuer_database_path: Option<String>,
+    redeemer_database_path: Option<String>,
     issuer_private_der_path: String,
     redeemer_private_key_path: String,
     epoch: PermitEpoch,
@@ -119,7 +121,7 @@ struct AccountCheckpoint {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AccountConfig {
-    database_path: String,
+    database_path: Option<String>,
     operator_private_key_path: String,
     policy: AccountLedgerPolicy,
     max_request_bytes: usize,
@@ -127,9 +129,26 @@ struct AccountConfig {
     checkpoints: Vec<AccountCheckpoint>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+// Storage credentials are deliberately excluded from Debug and RPC types.
+#[derive(Deserialize)]
+#[serde(tag = "driver", rename_all = "lowercase", deny_unknown_fields)]
+enum StorageConfig {
+    Sqlite {},
+    Turso {
+        url: String,
+        #[serde(rename = "authToken")]
+        auth_token: Option<String>,
+        #[serde(rename = "authTokenPath")]
+        auth_token_path: Option<String>,
+        #[serde(rename = "networkTimeoutMs")]
+        network_timeout_ms: u64,
+    },
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ConfigFile {
+    storage: Option<StorageConfig>,
     runtime: RuntimeConfig,
     trust: TrustConfig,
     discovery: DiscoveryConfig,
@@ -140,6 +159,7 @@ struct ConfigFile {
 
 struct Runtime {
     config: RuntimeConfig,
+    remote_storage: bool,
     cmsg_trust: CmsgAdmissionTrust,
     discovery: DiscoveryService<ValkeyDiscoveryStore>,
     board: Mutex<MeetingBoard>,
@@ -301,6 +321,87 @@ fn read_bounded(path: &Path, maximum: usize) -> Result<Vec<u8>, ServiceError> {
     Ok(bytes)
 }
 
+fn read_private(path: &Path, maximum: usize) -> Result<Vec<u8>, ServiceError> {
+    let file = File::open(path).map_err(|_| ServiceError::Storage)?;
+    let metadata = file.metadata().map_err(|_| ServiceError::Storage)?;
+    if !metadata.is_file()
+        || metadata.len() > maximum as u64
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(ServiceError::InvalidRequest);
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take((maximum + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| ServiceError::Storage)?;
+    if bytes.len() != metadata.len() as usize {
+        bytes.fill(0);
+        return Err(ServiceError::InvalidRequest);
+    }
+    Ok(bytes)
+}
+
+fn remote_config(input: Option<StorageConfig>) -> Result<Option<RemoteConfig>, ServiceError> {
+    let Some(StorageConfig::Turso {
+        url,
+        auth_token,
+        auth_token_path,
+        network_timeout_ms,
+    }) = input
+    else {
+        // The existing CI configuration explicitly names every SQLite file.
+        return Ok(None);
+    };
+    if !(url.starts_with("https://") || url.starts_with("libsql://"))
+        || url.len() > 2048
+        || network_timeout_ms == 0
+        || network_timeout_ms > 60_000
+    {
+        return Err(ServiceError::InvalidRequest);
+    }
+    let token = match (auth_token, auth_token_path) {
+        (Some(token), None) => token,
+        (None, Some(path)) => {
+            let mut bytes = read_private(&absolute_path(&path)?, 2050)?;
+            let result = std::str::from_utf8(&bytes)
+                .map(|value| {
+                    value
+                        .strip_suffix("\r\n")
+                        .or_else(|| value.strip_suffix('\n'))
+                        .unwrap_or(value)
+                        .to_owned()
+                })
+                .map_err(|_| ServiceError::InvalidRequest);
+            bytes.fill(0);
+            result?
+        }
+        _ => return Err(ServiceError::InvalidRequest),
+    };
+    if token.is_empty()
+        || token.len() > 2048
+        || !token.bytes().all(|byte| (0x21..=0x7e).contains(&byte))
+    {
+        return Err(ServiceError::InvalidRequest);
+    }
+    Ok(Some(RemoteConfig {
+        url,
+        auth_token: token,
+        timeout: Duration::from_millis(network_timeout_ms),
+    }))
+}
+
+fn copy_remote(config: &RemoteConfig) -> RemoteConfig {
+    RemoteConfig {
+        url: config.url.clone(),
+        auth_token: config.auth_token.clone(),
+        timeout: config.timeout,
+    }
+}
+
+fn sqlite_path(value: &Option<String>) -> Result<PathBuf, ServiceError> {
+    absolute_path(value.as_deref().ok_or(ServiceError::InvalidRequest)?)
+}
+
 fn parse_payload<T: DeserializeOwned>(payload: Value) -> Result<T, ServiceError> {
     serde_json::from_value(payload).map_err(|_| ServiceError::InvalidRequest)
 }
@@ -334,16 +435,32 @@ fn trust(config: &TrustConfig) -> Result<AdmissionTrust, ServiceError> {
 }
 
 fn load_config(path: &Path) -> Result<Runtime, ServiceError> {
-    let bytes = read_bounded(path, MAX_CONFIG_BYTES as usize)?;
-    let file: ConfigFile =
-        serde_json::from_slice(&bytes).map_err(|_| ServiceError::InvalidRequest)?;
+    let mut bytes = read_private(path, MAX_CONFIG_BYTES as usize)?;
+    let parsed =
+        serde_json::from_slice::<ConfigFile>(&bytes).map_err(|_| ServiceError::InvalidRequest);
+    bytes.fill(0);
+    let file = parsed?;
+    let remote = remote_config(file.storage)?;
+    if remote.is_some()
+        && (file.account.database_path.is_some()
+            || file.discovery.control_database_path.is_some()
+            || file.discovery.control_busy_timeout_millis.is_some()
+            || file.key_access.issuer_database_path.is_some()
+            || file.key_access.redeemer_database_path.is_some())
+    {
+        return Err(ServiceError::InvalidRequest);
+    }
     if file.runtime.max_line_bytes == 0
         || file.runtime.max_response_bytes == 0
         || file.runtime.max_pending == 0
         || file.runtime.max_pending > 64
         || file.runtime.deadline_millis == 0
         || file.runtime.max_stderr_bytes == 0
-        || file.discovery.control_busy_timeout_millis == 0
+        || (remote.is_none()
+            && !file
+                .discovery
+                .control_busy_timeout_millis
+                .is_some_and(|value| value > 0))
         || file.discovery.valkey.pool_size == 0
         || file.discovery.valkey.connect_timeout_millis == 0
         || file.discovery.valkey.io_timeout_millis == 0
@@ -378,13 +495,22 @@ fn load_config(path: &Path) -> Result<Runtime, ServiceError> {
     let operator_key: [u8; 32] = operator_key
         .try_into()
         .map_err(|_| ServiceError::InvalidRequest)?;
-    let ledger = AccountLedger::open(
-        absolute_path(&account_config.database_path)?,
-        trusted.clone(),
-        account_config.policy,
-        verifier,
-        SigningKey::from_bytes(&operator_key),
-    )?;
+    let ledger = match &remote {
+        Some(config) => AccountLedger::open_remote(
+            copy_remote(config),
+            trusted.clone(),
+            account_config.policy,
+            verifier,
+            SigningKey::from_bytes(&operator_key),
+        ),
+        None => AccountLedger::open(
+            sqlite_path(&account_config.database_path)?,
+            trusted.clone(),
+            account_config.policy,
+            verifier,
+            SigningKey::from_bytes(&operator_key),
+        ),
+    }?;
     let mut account = AccountService::new(
         ledger,
         account_clock as fn() -> u64,
@@ -393,11 +519,17 @@ fn load_config(path: &Path) -> Result<Runtime, ServiceError> {
     for checkpoint in account_config.checkpoints {
         account.publish_verified_checkpoint(checkpoint.slot, checkpoint.root)?;
     }
-    let control_path = absolute_path(&file.discovery.control_database_path)?;
-    let control = Arc::new(SqliteDiscoveryControl::open(
-        control_path,
-        Duration::from_millis(file.discovery.control_busy_timeout_millis),
-    )?);
+    let control = Arc::new(match &remote {
+        Some(config) => SqliteDiscoveryControl::open_remote(copy_remote(config)),
+        None => SqliteDiscoveryControl::open(
+            sqlite_path(&file.discovery.control_database_path)?,
+            Duration::from_millis(
+                file.discovery
+                    .control_busy_timeout_millis
+                    .ok_or(ServiceError::InvalidRequest)?,
+            ),
+        ),
+    }?);
     let root_certificate = file
         .discovery
         .valkey
@@ -428,8 +560,6 @@ fn load_config(path: &Path) -> Result<Runtime, ServiceError> {
             max_replay_entries: file.presence.max_replay_entries,
         },
     )?;
-    let issuer_database = absolute_path(&file.key_access.issuer_database_path)?;
-    let redeemer_database = absolute_path(&file.key_access.redeemer_database_path)?;
     let issuer_key_path = absolute_path(&file.key_access.issuer_private_der_path)?;
     let redeemer_key_path = absolute_path(&file.key_access.redeemer_private_key_path)?;
     let issuer_key = read_bounded(&issuer_key_path, MAX_KEY_BYTES)?;
@@ -437,20 +567,37 @@ fn load_config(path: &Path) -> Result<Runtime, ServiceError> {
     let redeemer_key: [u8; 32] = redeemer_key
         .try_into()
         .map_err(|_| ServiceError::InvalidRequest)?;
-    let issuer = KeyAccessIssuer::open(
-        issuer_database,
-        trusted,
-        file.key_access.epoch.clone(),
-        file.key_access.policy,
-        &issuer_key,
-    )?;
-    let redeemer = KeyAccessRedeemer::open(
-        redeemer_database,
-        file.key_access.epoch,
-        SigningKey::from_bytes(&redeemer_key),
-    )?;
+    let issuer = match &remote {
+        Some(config) => KeyAccessIssuer::open_remote(
+            copy_remote(config),
+            trusted,
+            file.key_access.epoch.clone(),
+            file.key_access.policy,
+            &issuer_key,
+        ),
+        None => KeyAccessIssuer::open(
+            sqlite_path(&file.key_access.issuer_database_path)?,
+            trusted,
+            file.key_access.epoch.clone(),
+            file.key_access.policy,
+            &issuer_key,
+        ),
+    }?;
+    let redeemer = match &remote {
+        Some(config) => KeyAccessRedeemer::open_remote(
+            copy_remote(config),
+            file.key_access.epoch,
+            SigningKey::from_bytes(&redeemer_key),
+        ),
+        None => KeyAccessRedeemer::open(
+            sqlite_path(&file.key_access.redeemer_database_path)?,
+            file.key_access.epoch,
+            SigningKey::from_bytes(&redeemer_key),
+        ),
+    }?;
     Ok(Runtime {
         config: file.runtime,
+        remote_storage: remote.is_some(),
         cmsg_trust,
         discovery,
         board: Mutex::new(board),
@@ -727,12 +874,20 @@ fn main() {
                 result: result,
             },
             Err(error) => {
+                // A remote SQL error or elapsed operation deadline may have
+                // committed. Return failure once, then retire all handles.
+                // The supervisor must reopen durable state; never retry here.
+                let retire = runtime.remote_storage
+                    && matches!(&error, ServiceError::Storage | ServiceError::Timeout);
                 let failure = RpcFailure {
                     id,
                     ok: false,
                     error: RpcError { code: error.code() },
                 };
                 if write_response(&mut stdout, &failure, max_response_bytes).is_err() {
+                    break;
+                }
+                if retire {
                     break;
                 }
                 continue;

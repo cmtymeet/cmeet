@@ -15,7 +15,16 @@ community with a stable `communityId`.
 
 ## Status
 
-Scaffold pending. No source committed yet.
+The initial website includes voucher admission, passkey authentication, profiles,
+discovery, direct conversations, optional scoped API keys, and an MCP endpoint.
+These components are under integration validation; a successful build is not
+evidence of a complete live peer-to-peer conversation.
+
+The server composes the libraries through `server/start.mjs`. Its private
+configuration explicitly selects durable storage. Turso connections are shared
+across admission, API keys, enrollment, accounting, and discovery control;
+Valkey holds ephemeral discovery data. Member keys and message content remain
+on member devices. See [storage configuration](docs/storage.md).
 
 ## License
 

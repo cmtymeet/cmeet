@@ -31,7 +31,7 @@ const tor = JSON.parse(await readFile('vendor/tor-js/package.json', 'utf8'));
 assert.equal(tor.name, 'tor-js');
 assert.equal(tor.version, '0.4.1-cmsg-experiment.1d5217bea907');
 JS
-if ! test -f package-lock.json; then
+if test "${RESOLVE_DEPENDENCIES:-0}" = 1 || ! test -f package-lock.json; then
   test "${RESOLVE_DEPENDENCIES:-0}" = 1
   timeout --kill-after=15 600 npm install --package-lock-only --ignore-scripts --no-audit --no-fund \
     2>&1 | tee "$ARTIFACT_ROOT/npm-resolution.log"

@@ -23,7 +23,8 @@ export function createCfrmBackend({ binaryPath, configPath, maxRequestBytes, max
   if (typeof binaryPath !== 'string' || typeof configPath !== 'string' || !isAbsolute(binaryPath) || !isAbsolute(configPath)) throw new TypeError('Absolute backend paths required');
   limit(maxRequestBytes); limit(maxResponseBytes); limit(maxPending, 64); limit(deadlineMs, 300_000); limit(maxStderrBytes, 1_048_576);
   const child = spawn(binaryPath, ['--config', configPath], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-  let buffer = Buffer.alloc(0), active, failure, sequence = 0, pending = 0, stderrSize = 0;
+  let buffer = Buffer.alloc(0), active, failure, sequence = 0, pending = 0, stderrSize = 0, closed = false;
+  const failureListeners = new Set();
   let chain = Promise.resolve();
   function fail(error = new NativeBackendError()) {
     if (failure) return;
@@ -31,6 +32,7 @@ export function createCfrmBackend({ binaryPath, configPath, maxRequestBytes, max
     if (active) { clearTimeout(active.timer); active.reject(error); active = undefined; }
     buffer = Buffer.alloc(0);
     child.kill('SIGKILL');
+    if (!closed) for (const listener of failureListeners) { try { listener(error); } catch {} }
   }
   child.once('error', () => fail());
   child.once('close', () => fail());
@@ -83,6 +85,13 @@ export function createCfrmBackend({ binaryPath, configPath, maxRequestBytes, max
   }
   const kinds = { discovery: 'discovery', account: 'account', presence: 'presence_apply', presenceLookup: 'presence_lookup', presenceDirectory: 'presence_directory', keyIssue: 'key_issue' };
   return Object.freeze({
+    get healthy() { return !closed && !failure; },
+    onFailure(listener) {
+      if (typeof listener !== 'function') throw new TypeError('Backend failure listener required');
+      failureListeners.add(listener);
+      if (failure && !closed) queueMicrotask(() => { if (failureListeners.has(listener)) { try { listener(failure); } catch {} } });
+      return () => failureListeners.delete(listener);
+    },
     callOperation,
     // This capability is held only by the trusted enrollment publisher. The
     // generic call/callOperation interfaces cannot manufacture this principal.
@@ -92,7 +101,7 @@ export function createCfrmBackend({ binaryPath, configPath, maxRequestBytes, max
       return kind ? callOperation(kind, payload, options) : Promise.reject(new NativeBackendError('unsupported'));
     },
     ready: () => callOperation('health', {}, { principal: { kind: 'anonymous' } }),
-    close: () => fail(),
+    close: () => { closed = true; failureListeners.clear(); fail(); },
   });
 }
 export const createNativeCfrmBackend = createCfrmBackend;

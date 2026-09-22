@@ -11,7 +11,7 @@ on:
         type: string
         required: true
       resolve_dependencies:
-        description: Resolve the absent CI-only native adapter Cargo lock once
+        description: Resolve an absent native lock or update only cfrm/cmsg source pins; cannot reuse a native binary
         type: boolean
         default: false
       native_run_id:

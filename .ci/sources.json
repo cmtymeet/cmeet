@@ -1,15 +1,15 @@
 {
   "cfrm": {
     "repository": "cmtymeet/cfrm",
-    "revision": "5628d2ce8fda926e50fdeced75c805ef58c2b568"
+    "revision": "f1797c80f05cf469af55ea169290e48630181d20"
   },
   "cmsg": {
     "repository": "cmtymeet/cmsg",
-    "revision": "1b098a60673411124252fd11ba78b4defef437d8"
+    "revision": "7855f4b2561d28bd33d18a979b4d4ddea9a3aa19"
   },
   "cvld": {
     "repository": "cmtymeet/cvld",
-    "revision": "46a17c032a591b3fbc8ff67d844930997f4cd720"
+    "revision": "f19d292b509dd61366a01569794afe3c604fbaaa"
   },
   "cvch": {
     "repository": "cmtymeet/cvch",

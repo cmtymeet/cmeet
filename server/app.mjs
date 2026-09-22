@@ -11,7 +11,11 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 
 /** HTTP mechanics only. Trusted origin is explicit; forwarded headers never
  * select an RP, community, upstream, or authorization policy. */
-export async function createCmeetServer({ api, mcp, origin, distDir, limits, torGatewayOrigins }) {
+export async function createCmeetServer({ api, mcp, origin, distDir, limits, torGatewayOrigins,
+  health = () => true, onUnhealthy = () => {} }) {
+  // Standalone HTTP contract fixtures report listener health by default.
+  // Production supplies live backend/store readiness and failure shutdown.
+  if (typeof health !== 'function' || typeof onUnhealthy !== 'function') throw new TypeError('Health callbacks required');
   const configured = new URL(origin), root = await realpath(distDir);
   if (configured.origin !== origin || !['http:', 'https:'].includes(configured.protocol)) throw new TypeError('Exact website origin required');
   for (const name of ['maxConcurrentRequests', 'requestTimeoutMs', 'maxBodyBytes', 'maxAssetBytes']) {
@@ -50,7 +54,12 @@ export async function createCmeetServer({ api, mcp, origin, distDir, limits, tor
         ...(['GET', 'HEAD'].includes(incoming.method) ? {} : { body: Readable.toWeb(incoming), duplex: 'half' }) });
       let response;
       if (url.pathname === '/mcp') response = await mcp.handle(request);
-      else if (url.pathname === '/health' && incoming.method === 'GET') response = json(200, { status: 'running' });
+      else if (url.pathname === '/health' && incoming.method === 'GET') {
+        let healthy = false;
+        try { healthy = (await health()) === true; } catch {}
+        if (!healthy) outgoing.once('finish', () => { try { onUnhealthy(); } catch {} });
+        response = json(healthy ? 200 : 503, { status: healthy ? 'running' : 'unavailable' });
+      }
       else if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/credential/') || url.pathname.startsWith('/v1/')) response = await api.handle(request);
       else {
         if (!['GET', 'HEAD'].includes(incoming.method)) { outgoing.writeHead(405).end(); return; }

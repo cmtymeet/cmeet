@@ -11,7 +11,7 @@ on:
         default: all
         options: [all, browser, server]
       resolve_dependencies:
-        description: Resolve missing candidate npm/native Cargo locks once; preserve retained locks
+        description: Resolve changed source pins and package manifests once; retain resulting locks
         type: boolean
         default: false
       cvld_source_sha:
