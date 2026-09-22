@@ -1,0 +1,64 @@
+name: Real account Worker and native service contract
+on:
+  workflow_dispatch:
+    inputs:
+      package_run_id:
+        description: Reviewed website run with successful exact source-package preparation
+        type: string
+        required: true
+      package_source_sha:
+        description: Exact cmeet source SHA of that retained package run
+        type: string
+        required: true
+      resolve_dependencies:
+        description: Resolve the absent CI-only native adapter Cargo lock once
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  accounting:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      CI_COMMIT_SHA: ${{ github.sha }}
+      GH_TOKEN: ${{ github.token }}
+      PACKAGE_RUN_ID: ${{ inputs.package_run_id }}
+      PACKAGE_SOURCE_SHA: ${{ inputs.package_source_sha }}
+      RESOLVE_DEPENDENCIES: ${{ inputs.resolve_dependencies && '1' || '0' }}
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.ci-work/accounting-target
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Prepare isolated tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup update stable --no-self-update
+          rustup default stable
+          printf 'BROWSER_BIN=%s\n' "$(command -v google-chrome || command -v chromium)" >> "$GITHUB_ENV"
+          printf 'OPENSSL_INCLUDE_DIR=%s\n' "$(pkg-config --variable=includedir openssl)" >> "$GITHUB_ENV"
+          printf 'OPENSSL_LIB_DIR=%s\n' "$(pkg-config --variable=libdir openssl)" >> "$GITHUB_ENV"
+      - name: Reuse reviewed assets and prove through the real Worker
+        env:
+          ARTIFACT_ROOT: ${{ runner.temp }}/accounting-contract
+        run: bash .ci/accounting-checks.sh
+      - name: Retain public evidence and exact candidate locks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: accounting-contract-${{ github.sha }}
+          path: ${{ runner.temp }}/accounting-contract
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
