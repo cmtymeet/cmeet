@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { createApi, readJson } from '../server/api.mjs';
 import { createCommunityMcp } from '../server/mcp.mjs';
 import { createCmeetServer } from '../server/app.mjs';
+import { mcpResponse } from './mcp-response.mjs';
 
 const origin = 'https://site.example', communityId = 'site.example';
 function boundary() {
@@ -75,7 +76,7 @@ test('actual MCP protocol uses the same operation authorization, enforces scopes
     request.headers.set('accept', 'application/json, text/event-stream');
     request.headers.set('mcp-protocol-version', '2025-11-25');
     const response = await mcp.handle(request);
-    return { status: response.status, body: await response.json() };
+    return { status: response.status, body: await mcpResponse(response, id) };
   };
   try {
     assert.equal((await rpc('tools/list', {}, null)).status, 401);

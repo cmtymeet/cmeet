@@ -3,6 +3,7 @@
 // verify cryptography. Real cmsg/cfrm verification remains in native/browser
 // lanes.
 import assert from 'node:assert/strict';
+import { mcpResponse } from './mcp-response.mjs';
 import { test } from 'node:test';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -169,7 +170,7 @@ test('MCP enrollment uses the same operation scopes and member binding', async (
   }, body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }) });
   const rpc = async (name, request) => {
     const response = await mcp.handle(rpcRequest('tools/call', { name, arguments: { request } }));
-    return { status: response.status, body: await response.json() };
+    return { status: response.status, body: await mcpResponse(response, id) };
   };
   try {
     const initialized = await mcp.handle(rpcRequest('initialize', {
