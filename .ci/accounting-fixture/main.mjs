@@ -12,12 +12,25 @@ Date.now = () => fixtureNow * 1000;
 const NativeWorker = globalThis.Worker, workers = new Set();
 globalThis.Worker = class extends NativeWorker {
   constructor(url, options) {
-    const bootstrap = `let now = ${fixtureNow}; Date.now = () => now * 1000;
-      addEventListener('message', event => { if (event.data?.kind === 'fixtureClock') {
-        now = event.data.now; event.stopImmediatePropagation(); } });
-      await import(${JSON.stringify(new URL(url, location.href).href)});`;
+    const bootstrap = `let now = ${fixtureNow}, ready = false; const pending = [];
+      Date.now = () => now * 1000;
+      addEventListener('message', event => {
+        if (event.data?.kind === 'fixtureClock') {
+          now = event.data.now; event.stopImmediatePropagation();
+        } else if (!ready) {
+          pending.push(event.data); event.stopImmediatePropagation();
+        }
+      });
+      await import(${JSON.stringify(new URL(url, location.href).href)});
+      ready = true;
+      for (const data of pending) dispatchEvent(new MessageEvent('message', { data }));`;
     const objectUrl = URL.createObjectURL(new Blob([bootstrap], { type: 'text/javascript' }));
     super(objectUrl, { ...options, type: 'module' });
+    this.addEventListener('message', ({ data }) => {
+      if (data?.kind === 'rpc' && ['loadMaterial', 'saveMaterial', 'loadJournal', 'saveJournal', 'account', 'enrollment'].includes(data.method)) {
+        window.fixtureStage(`worker RPC ${data.method}`).catch(() => {});
+      } else if (data?.kind === 'result') window.fixtureStage(`worker result ${data.ok === true ? 'accepted' : 'rejected'}`).catch(() => {});
+    });
     this.objectUrl = objectUrl; workers.add(this);
   }
   terminate() { super.terminate(); URL.revokeObjectURL(this.objectUrl); workers.delete(this); }
@@ -73,6 +86,7 @@ window.runAccountingFixture = async config => {
   inboxStore = await cmsg.openIndexedDbInboxStore('cmeet-accounting-contract-inboxes');
   const a = await client(config), b = await client(config);
   try {
+    await window.fixtureStage('first account initialization submitted');
     const started = await a.session.start();
     await check(started.status === 'eligible' && started.acceptedVersion === 0, 'real Worker factory proves and durably accepts genesis');
     const pending = await b.session.start();

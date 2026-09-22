@@ -38,7 +38,7 @@ const config = { communityId, policyDigest, issuerPublicKey: [...issuerPublic], 
   verifierScript: fileURLToPath(import.meta.resolve('cfrm/accounting/node-verifier')), artifactConfig: artifactConfigPath,
   scope: { circuitDigest: [...Buffer.from(manifest.circuitSha256, 'hex')], verifyingKeyDigest: [...Buffer.from(manifest.vkSha256, 'hex')] },
   policy: { account: policy, maxAuthorizationSeconds: 100, maxProofBytes: limits.maxProofBytes, checkpointPeriodSeconds: 100 }, checkpoints: [] };
-const evidence = { source: process.env.CI_COMMIT_SHA, runtimeManifestSha256: manifestSha256, ok: false, checks: [],
+const evidence = { source: process.env.CI_COMMIT_SHA, runtimeManifestSha256: manifestSha256, ok: false, checks: [], stages: [],
   clock: 'explicit CI-only controlled clock; production Worker clock unchanged',
   scope: 'actual Worker factory, signed native AccountService, staged cmsg admission, encrypted persistence and Close settlement',
   excluded: ['voucher eligibility', 'UI', 'live payload delivery', 'Tor', 'Answer acknowledgment settlement'] };
@@ -156,6 +156,11 @@ try {
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.exposeFunction('fixtureReport', label => {
     assert(typeof label === 'string' && label.length < 256); evidence.checks.push(label); process.stdout.write(label + '\n');
+  });
+  await page.exposeFunction('fixtureStage', label => {
+    assert(typeof label === 'string' && label.length < 128);
+    if (evidence.stages.length < 512) evidence.stages.push({ label, elapsedMs: Math.round(performance.now()) });
+    process.stdout.write(`stage: ${label}\n`);
   });
   await page.exposeFunction('fixtureControl', (operation, input) => serialized(async () => {
     if (operation === 'advance') {
