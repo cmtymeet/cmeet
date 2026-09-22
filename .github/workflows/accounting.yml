@@ -14,6 +14,10 @@ on:
         description: Resolve the absent CI-only native adapter Cargo lock once
         type: boolean
         default: false
+      native_run_id:
+        description: Optional retained run with an identical compiled native fixture
+        type: string
+        default: ''
 permissions:
   contents: read
   actions: read
@@ -30,6 +34,7 @@ jobs:
       PACKAGE_RUN_ID: ${{ inputs.package_run_id }}
       PACKAGE_SOURCE_SHA: ${{ inputs.package_source_sha }}
       RESOLVE_DEPENDENCIES: ${{ inputs.resolve_dependencies && '1' || '0' }}
+      REUSE_ACCOUNT_NATIVE_RUN: ${{ inputs.native_run_id }}
       CARGO_BUILD_JOBS: '2'
       CARGO_TARGET_DIR: ${{ github.workspace }}/.ci-work/accounting-target
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'

@@ -85,7 +85,7 @@ async function initialize(input) {
   privateContext = `cmeet.accounting.private.v1/${hex(new Uint8Array(await crypto.subtle.digest('SHA-256',
     utf8.encode(JSON.stringify(['cmeet.accounting.private.v1', input.communityId, ownerId])))))}`;
   keyContext = utf8.encode(JSON.stringify(['cmeet.accounting.p256.v1', input.communityId, ownerId]));
-  await cmsg.init({ module_or_path: cmsgWasmUrl });
+  await cmsg.init({ module_or_path: new URL(cmsgWasmUrl, import.meta.url).href });
   let copied;
   try {
     copied = cmsg.BrowserMember.restore(input.snapshot, input.copyKey, input.context);

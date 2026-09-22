@@ -83,7 +83,11 @@ if ! test -f .ci/accounting-native/Cargo.lock; then
 fi
 cp .ci/accounting-native/Cargo.lock "$ARTIFACT_ROOT/accounting-native-Cargo.lock"
 cargo fmt --manifest-path .ci/accounting-native/Cargo.toml -- --check
-cargo build --locked --release --manifest-path .ci/accounting-native/Cargo.toml 2>&1 | tee "$ARTIFACT_ROOT/native-build.log"
+if test -n "${REUSE_ACCOUNT_NATIVE_RUN:-}"; then
+  node .ci/reuse-accounting-native.mjs
+else
+  cargo build --locked --release --manifest-path .ci/accounting-native/Cargo.toml 2>&1 | tee "$ARTIFACT_ROOT/native-build.log"
+fi
 cmp .ci/accounting-native/Cargo.lock "$ARTIFACT_ROOT/accounting-native-Cargo.lock"
 export ACCOUNT_CONTRACT_NATIVE="$CARGO_TARGET_DIR/release/cmeet-accounting-contract"
 cp "$ACCOUNT_CONTRACT_NATIVE" "$ARTIFACT_ROOT/cmeet-accounting-contract"
