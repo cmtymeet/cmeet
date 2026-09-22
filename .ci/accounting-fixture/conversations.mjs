@@ -1,8 +1,6 @@
 // Production controller, real Workers and signed AccountService. Only the
 // framed transport and trusted CI clock are scripted; no proof verdict is injected.
 import { createConversations } from '../../src/lib/conversations.js';
-import { verifyAccountAcceptance } from 'cfrm/accounting';
-import { decode } from '../../src/lib/encoding.js';
 
 const assert = (value, label) => { if (!value) throw new Error(`Production conversations: ${label}`); };
 const marker = bytes => BigInt('0x' + bytes.map(value => value.toString(16).padStart(2, '0')).join('')).toString();
@@ -123,7 +121,7 @@ export async function runProductionConversations({ clients, config, request, cre
     'production reply exchanges genuine Answer receipt and initiator acknowledgment');
     for (const [index, controller] of controllers.entries()) {
       const account = await stage(`verify production Answer account ${index + 1}`, () => controller.maintain());
-      await verifyAccountAcceptance(account.accepted, decode(config.accounting.operatorPublicKey, 32));
+      await window.fixtureControl('verifyAcceptance', account.accepted);
       await check(account.acceptedVersion === baseline[index] + 3
         && marker(account.accepted.statement.settlementMarker) === saved[index].event
         && account.slots.some(slot => slot.event === saved[index].event && slot.phase === 3),

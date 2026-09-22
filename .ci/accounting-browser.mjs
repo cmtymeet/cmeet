@@ -4,13 +4,14 @@ import assert from 'node:assert/strict';
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { build } from 'vite';
-import { createAccountVerifier } from 'cfrm/accounting';
+import { createAccountVerifier, verifyAccountAcceptance } from 'cfrm/accounting';
+import { assertAssetClosure } from './assert-asset-closure.mjs';
 import { nodeArtifactOptions } from 'cfrm/accounting/node-verifier';
 import { createEnrollmentService } from 'cfrm/accounting/enrollment-node';
 import { createEnrollmentStore } from 'cfrm/accounting/enrollment-store';
@@ -93,6 +94,7 @@ try {
   await writeConfig();
   await build({ configFile: join(root, 'vite.config.mjs'), logLevel: 'warn',
     build: { outDir: dist, emptyOutDir: true, rolldownOptions: { input: join(root, '.ci/accounting-fixture/index.html') } } });
+  await assertAssetClosure(dist);
   hashRuntime = await createAccountVerifier(await nodeArtifactOptions(artifactConfigPath));
   enrollmentStore = createEnrollmentStore({ path: join(work, 'enrollment.sqlite'), maxMembers: 2, maxRetainedSlots: 32,
     maxPublicationBytes: 1024 * 1024, busyTimeoutMs: 5000 });
@@ -124,6 +126,10 @@ try {
         const input = JSON.parse(Buffer.concat(chunks));
         const output = await serialized(async () => {
           if (path.endsWith('/enrollment')) {
+            if (input.action === 'checkpoint') {
+              assert.deepEqual(Object.keys(input).sort(), ['action', 'slot']);
+              return { action: 'checkpoint', slot: input.slot, publication: await enrollment.checkpoint(input.slot) };
+            }
             if (input.action === 'enroll') {
               const member = input.delegation.admission.memberId, prior = currentEntries.get(member);
               if (prior) {
@@ -200,6 +206,11 @@ try {
       assert(conversationContract && conversationStart === undefined);
       conversationStart = { applyCount, genesisCount }; return true;
     }
+    if (operation === 'verifyAcceptance') {
+      noPrivateFields(input);
+      await verifyAccountAcceptance(input, Uint8Array.from(Buffer.from(operatorPublicKey, 'base64url')));
+      return true;
+    }
     if (operation === 'verifyConversations') {
       assert(conversationContract && conversationStart);
       assert.equal(genesisCount, conversationStart.genesisCount, 'Production composition must reuse accepted accounts');
@@ -229,7 +240,10 @@ finally {
   await writeFile(join(artifacts, 'accounting-browser.json'), JSON.stringify(evidence, null, 2) + '\n');
   // Public generated code only. Keep the failed Worker bundle reviewable; no
   // fixture keys, database, proof witnesses or private configuration are copied.
-  try { await cp(dist, join(artifacts, 'fixture-dist'), { recursive: true }); }
+  try {
+    await copyFile(join(dist, '.ci/accounting-fixture/index.html'), join(artifacts, 'fixture-index.html'));
+    await cp(join(dist, 'assets'), join(artifacts, 'fixture-assets'), { recursive: true });
+  }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   await rm(work, { recursive: true, force: true });
 }

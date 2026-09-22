@@ -56,6 +56,7 @@ export PLAYWRIGHT_CHROMIUM_EXECUTABLE="${BROWSER_BIN:?Browser executable require
 printf '%s\n' "${CHECK_SCOPE:-all}" > "$ARTIFACT_ROOT/check-scope.txt"
 if test "${CHECK_SCOPE:-all}" != server; then
   timeout --kill-after=15 180 npm run build 2>&1 | tee "$ARTIFACT_ROOT/build.log"
+  node .ci/assert-asset-closure.mjs dist
   tar --create --file "$ARTIFACT_ROOT/cmeet-dist.tar" dist
 fi
 if test "${CHECK_SCOPE:-all}" != browser; then
