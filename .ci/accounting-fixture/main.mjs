@@ -61,6 +61,117 @@ async function request(path, { body } = {}) {
   if (!response.ok) throw new Error('Fixture public transport rejected');
   return response.json();
 }
+const sameBytes = (left, right) => left.length === right.length && left.every((value, index) => value === right[index]);
+// Scripted frame delivery only: all frames, signatures, release decisions and
+// durable ACKs come from the generated cmsg implementation.
+function framedPair(owners, { maxFrameBytes = 65_536, maxQueuedFrames = 16, readDeadlineMs = 10_000 } = {}) {
+  const states = owners.map(() => ({ queue: [], reader: null }));
+  let closed = false;
+  function close() {
+    if (closed) return;
+    closed = true;
+    for (const state of states) {
+      for (const bytes of state.queue.splice(0)) bytes.fill(0);
+      state.reader?.reject(new Error('Scripted framed transport closed'));
+    }
+  }
+  return states.map((state, index) => ({
+    dropNext: false, dropped: 0,
+    get closed() { return closed; },
+    async send(bytes) {
+      if (closed || !(bytes instanceof Uint8Array) || !bytes.length || bytes.length > maxFrameBytes) throw new Error('Scripted frame bound');
+      if (this.dropNext) { this.dropNext = false; this.dropped++; return; }
+      const peer = states[1 - index], copy = bytes.slice();
+      if (peer.reader) peer.reader.resolve(copy);
+      else if (peer.queue.length < maxQueuedFrames) peer.queue.push(copy);
+      else { copy.fill(0); close(); throw new Error('Scripted frame queue bound'); }
+    },
+    receive() {
+      if (closed || state.reader || owners[index].scheduled) return Promise.reject(new Error('Scripted read state'));
+      if (state.queue.length) return Promise.resolve(state.queue.shift());
+      return new Promise((resolve, reject) => {
+        const finish = action => value => { clearTimeout(timer); state.reader = null; action(value); };
+        const timer = setTimeout(close, readDeadlineMs);
+        state.reader = { resolve: finish(resolve), reject: finish(reject) };
+      });
+    },
+    close,
+  }));
+}
+async function restoreInbox(value) {
+  await value.schedule('control', async () => {
+    const record = await inboxStore.read(value.memberId);
+    if (!(record?.checkpoint instanceof Uint8Array)) throw new Error('Missing durable Inbox checkpoint');
+    try {
+      const restored = cmsg.BrowserInbox.restore(record.checkpoint, value.key, value.context);
+      value.inbox.free(); value.inbox = restored;
+    } finally { record.checkpoint.fill(0); for (const wire of record.outbound) wire.fill(0); }
+  });
+}
+async function firstMessage(a, b, until) {
+  const streams = framedPair([a, b]), live = [];
+  const openings = [a, b].map((value, index) => cmsg.LiveInboxStream.open(streams[index], value.inbox, {
+    peerDevice: [b, a][index].inbox.chatPublicKey(), until, key: value.key, context: value.context,
+    persist: value.persist, schedule: value.schedule,
+  }).then(opened => { live[index] = opened; return opened; }));
+  const payload = utf8.encode('First contact through real account proofs and MLS.');
+  let messageId;
+  try {
+    await stage('open actual live MLS session over scripted frames', () => Promise.all(openings));
+    await stage('send accounted first live message', () => live[0].send(payload));
+    const sent = await a.schedule('control', () => JSON.parse(a.inbox.liveDeliveries()));
+    await check(sent.length === 1 && sent[0].outgoing && sent[0].status === 'pending',
+      'encrypted transport write alone leaves the first message unconfirmed');
+    messageId = Uint8Array.from(sent[0].messageId);
+    streams[1].dropNext = true;
+    const received = await stage('authenticate and persist first live message', () => live[1].receive());
+    try {
+      const bytes = received.bytes;
+      try { await check(received.kind === 'bytes' && received.memberId === a.memberId && sameBytes(bytes, payload),
+        'real Active proofs release the exact first plaintext with its authenticated author'); }
+      finally { bytes.fill(0); }
+    } finally { received.free(); }
+    await check(streams[1].dropped === 1 && JSON.parse(a.inbox.liveDeliveries())[0].status === 'pending',
+      'a lost real delivery ACK never reports sender acceptance');
+  } finally {
+    streams[0].close();
+    await Promise.allSettled(openings);
+    const closing = await Promise.allSettled(live.map(value => value.close()));
+    if (closing.some(result => result.status === 'rejected')) throw new Error('Durable live-session close failed');
+  }
+  await stage('restore encrypted live delivery journals', async () => {
+    await restoreInbox(a); await restoreInbox(b);
+  });
+  const history = b.inbox.acceptedLiveHistory();
+  try {
+    const bytes = history[0]?.bytes;
+    try { await check(history.length === 1 && history[0].memberId === a.memberId && bytes && sameBytes(bytes, payload)
+      && JSON.parse(a.inbox.liveDeliveries())[0].status === 'canceledUnconfirmed'
+      && a.inbox.liveSessions().length === 0 && b.inbox.liveSessions().length === 0,
+      'encrypted checkpoint recovery retains authenticated history without restoring live transmission permission'); }
+    finally { bytes?.fill(0); }
+  } finally { for (const entry of history) entry.free(); payload.fill(0); }
+  const recovery = framedPair([a, b]);
+  try {
+    await stage('recover original authenticated delivery ACK', async () => {
+      const wire = await b.schedule('control', () => b.inbox.retransmitLiveAck(messageId, ...b.args));
+      try { await recovery[1].send(wire); } finally { wire.fill(0); }
+      const incoming = await recovery[0].receive();
+      try {
+        const received = await a.schedule('receive', () => a.inbox.receive(incoming, ...a.args));
+        try { await check(received.kind === 'liveControl', 'recovered delivery ACK is authenticated control, never an application reply'); }
+        finally { received.free(); }
+      } finally { incoming.fill(0); }
+      await b.schedule('control', () => b.inbox.clearLiveControls(...b.args));
+    });
+    await restoreInbox(a);
+    const deliveries = JSON.parse(a.inbox.liveDeliveries());
+    await check(deliveries.length === 1 && deliveries[0].status === 'accepted'
+      && sameBytes(deliveries[0].messageId, messageId), 'retransmitted real ACK durably confirms the original message after restart');
+    await check(!a.inbox.inboundResolutionReceipt(b.memberId) && !b.inbox.outboundResolutionReceipt(a.memberId),
+      'first-message delivery ACK does not create Answer settlement evidence');
+  } finally { recovery[0].close(); messageId.fill(0); }
+}
 const clients = [];
 let inboxStore;
 async function client(config) {
@@ -76,13 +187,22 @@ async function client(config) {
   const inbox = cmsg.BrowserInbox.newAccounted(copy); copy = null; snapshot.fill(0);
   const store = await openWalletStore({ wallet, communityId: config.communityId, memberId: identity.memberId() });
   const value = { identity, device, wallet, store, inbox, copyKey, copyContext, unbound,
-    authority: { admission, authorization }, memberId: identity.memberId(), guarded: 0, staged: false };
+    authority: { admission, authorization }, memberId: identity.memberId(), guarded: 0, staged: false, scheduled: false };
+  let inboxQueue = Promise.resolve();
+  value.schedule = (category, operation) => {
+    if (!['send', 'receive', 'control'].includes(category)) return Promise.reject(new Error('Unknown Inbox operation'));
+    const next = inboxQueue.catch(() => {}).then(async () => {
+      value.scheduled = true;
+      try { return await operation(); } finally { value.scheduled = false; }
+    });
+    inboxQueue = next.catch(() => {}); return next;
+  };
   value.key = await wallet.storageKey('fixture-conversation'); value.context = utf8.encode('cmeet.accounting-fixture.conversation.v1');
   value.persist = inboxStore.persist(value.memberId);
   value.args = [value.key, value.context, value.persist];
   value.open = () => createAccountingSession({ api: { request }, store, wallet, device: value.device,
     authority: value.authority, config, async beforeAccountApply() {
-      if (value.staged) await value.inbox.invalidateReservation(...value.args);
+      if (value.staged) await value.schedule('control', () => value.inbox.invalidateReservation(...value.args));
       value.guarded++;
     } });
   value.session = await value.open(); clients.push(value); return value;
@@ -144,6 +264,7 @@ window.runAccountingFixture = async config => {
     await a.session.close(); a.session = await a.open();
     const restored = await a.session.start();
     await check(restored.acceptedVersion === 2, 'new Worker restores the encrypted accepted opening without reset or new genesis');
+    await firstMessage(a, b, expiresAt);
     const closeWire = await b.inbox.closeContact(...b.args);
     closeWire.fill(0); // This lane tests the authenticated local Close evidence, not delivery.
     const receipt = await b.session.receipt({ inbox: b.inbox, peer: a.memberId });
@@ -160,6 +281,12 @@ window.runAccountingFixture = async config => {
     await check(renewed.acceptedVersion === 3 && renewed.refilled === true && renewed.currentRootAccepted === true,
       'same-key delegation renewal plus a due zero-credit refill accepts the new common root');
     await refuses(() => a.session.verifyPeer(json(outgoing.proof), JSON.stringify(contexts(a).outgoing), true), 'superseded own proof cannot authorize release after a successor');
+    const renewedInput = { ...outgoingInput, context: contexts(a).outgoing };
+    const renewedReservation = await stage('prove existing Active reservation after delegation renewal', () => a.session.activeReservation(renewedInput));
+    await stage('verify renewed original-slot proof against current own account', () =>
+      a.session.verifyPeer(json(renewedReservation.proof), JSON.stringify(renewedInput.context), true));
+    await check(renewedReservation.event === outgoing.event && renewedReservation.acceptedVersion === 3,
+      'renewed roster verifies a fresh proof for the original slot authorities without spending capacity again');
     await advance(config.fixtureStart + 700);
     const expired = await a.session.maintain();
     await check(expired.slots.some(slot => slot.event === outgoing.event && slot.phase === 5), 'outgoing obligation retires only after its original common lease');
@@ -168,7 +295,17 @@ window.runAccountingFixture = async config => {
     await check(typeof persisted.accountingJournal.ciphertext === 'string' && persisted.accountingMaterial.envelope.version === 1
       && !JSON.stringify(persisted).includes('ownerSecret'), 'main-thread wallet records contain encrypted key material and account journal only');
     await window.fixtureControl('verifyTransport', { guarded: a.guarded + b.guarded });
-    return { checksComplete: true, accounts: 2, releaseScope: 'real staged admission and Close settlement; no live message or Tor claim' };
+    let productionConversations;
+    if (config.conversationContract === true) {
+      const { runProductionConversations } = await import('./conversations.mjs');
+      productionConversations = await runProductionConversations({ clients, request, check, stage,
+        config: { ...config, accounting: { ...config.accounting, statePolicyDigest: started.statePolicyDigest } },
+        createTransport: () => framedPair([{}, {}], { maxFrameBytes: 1_048_576, maxQueuedFrames: 16, readDeadlineMs: 30_000 }),
+      });
+    }
+    return { checksComplete: true, accounts: 2,
+      productionConversations,
+      releaseScope: 'real staged admission, encrypted first message, durable delivery ACK recovery and Close settlement over scripted frames; no Tor or UI claim' };
   } finally {
     await window.fixtureStage('close fixture workers');
     for (const value of clients) {

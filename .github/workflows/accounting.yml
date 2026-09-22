@@ -18,6 +18,10 @@ on:
         description: Optional retained run with an identical compiled native fixture
         type: string
         default: ''
+      conversations:
+        description: Also exercise production conversation controllers over scripted framed transport
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -35,6 +39,7 @@ jobs:
       PACKAGE_SOURCE_SHA: ${{ inputs.package_source_sha }}
       RESOLVE_DEPENDENCIES: ${{ inputs.resolve_dependencies && '1' || '0' }}
       REUSE_ACCOUNT_NATIVE_RUN: ${{ inputs.native_run_id }}
+      ACCOUNT_CONVERSATIONS: ${{ inputs.conversations && '1' || '0' }}
       CARGO_BUILD_JOBS: '2'
       CARGO_TARGET_DIR: ${{ github.workspace }}/.ci-work/accounting-target
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'

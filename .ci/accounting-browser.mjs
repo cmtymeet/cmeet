@@ -25,6 +25,8 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const manifestBytes = await readFile(join(runtimeDirectory, 'manifest.json'));
 assert.equal(hash(manifestBytes), manifestSha256);
 const manifest = JSON.parse(manifestBytes), policy = manifest.accountPolicy;
+assert(['0', '1'].includes(process.env.ACCOUNT_CONVERSATIONS ?? '0'));
+const conversationContract = process.env.ACCOUNT_CONVERSATIONS === '1';
 const work = await mkdtemp(join(tmpdir(), 'cmeet-accounting-contract-'));
 const configPath = join(work, 'native.json'), artifactConfigPath = join(work, 'artifacts.json'), dist = join(work, 'dist');
 const operatorSeed = randomBytes(32);
@@ -45,9 +47,12 @@ const config = { communityId, policyDigest, issuerPublicKey: [...issuerPublic], 
 const evidence = { source: process.env.CI_COMMIT_SHA, runtimeManifestSha256: manifestSha256, ok: false, checks: [], stages: [],
   fixtureStart,
   clock: 'explicit CI-only controlled clock; production Worker clock unchanged',
-  scope: 'actual Worker factory, signed native AccountService, staged cmsg admission, encrypted persistence and Close settlement',
-  excluded: ['voucher eligibility', 'UI', 'live payload delivery', 'Tor', 'Answer acknowledgment settlement'] };
-let clock = fixtureStart, loseNextMember, applyCount = 0, enrollment, enrollmentStore, hashRuntime, browser, server, queue = Promise.resolve();
+  scope: 'actual Worker factory, signed native AccountService, staged cmsg admission, encrypted live first message, durable delivery ACK recovery and Close settlement',
+  transport: 'scripted framed endpoints; 64 KiB frames, 16 queued frames and 10-second reads; deliberate first ACK loss',
+  conversationContract,
+  excluded: ['voucher eligibility', 'UI', 'Tor', ...(conversationContract ? [] : ['Answer acknowledgment settlement'])] };
+let clock = fixtureStart, loseNextMember, applyCount = 0, genesisCount = 0, conversationStart;
+let enrollment, enrollmentStore, hashRuntime, browser, server, queue = Promise.resolve();
 const applied = new Map(), currentEntries = new Map(), pageErrors = [];
 async function writeConfig() { await writeFile(configPath, JSON.stringify({ ...config, now: clock }), { mode: 0o600 }); }
 function native(operation, input) {
@@ -129,6 +134,7 @@ try {
           const value = await native('account', input);
           if (input.action === 'apply') {
             applyCount++;
+            if (input.request.statement.genesis === true) genesisCount++;
             const id = Buffer.from(input.request.requestId).toString('hex'), digest = hash(Buffer.from(JSON.stringify(input.request)));
             const prior = applied.get(id);
             if (prior) { assert.equal(prior.digest, digest, 'Retry must preserve every signed byte'); prior.count++; }
@@ -186,11 +192,23 @@ try {
       evidence.applyCalls = applyCount; evidence.uniqueAcceptedRequests = applied.size;
       evidence.requestDigests = [...applied.values()].map(value => value.digest); return true;
     }
+    if (operation === 'beginConversations') {
+      assert(conversationContract && conversationStart === undefined);
+      conversationStart = { applyCount, genesisCount }; return true;
+    }
+    if (operation === 'verifyConversations') {
+      assert(conversationContract && conversationStart);
+      assert.equal(genesisCount, conversationStart.genesisCount, 'Production composition must reuse accepted accounts');
+      assert.equal(currentEntries.size, 2);
+      assert(applyCount - conversationStart.applyCount >= 6, 'Two real reserve/activate/settle sequences required');
+      evidence.productionConversations = { accountsReused: 2, newGenesis: 0,
+        acceptedApplyCalls: applyCount - conversationStart.applyCount }; return true;
+    }
     throw new Error('Unknown trusted fixture operation');
   }));
   await page.goto(origin, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => typeof window.runAccountingFixture === 'function');
-  const configPublic = { communityId, fixtureStart, admissionTrust: { community_id: communityId, policy_digest: policyDigest, issuer_public_key: [...issuerPublic] },
+  const configPublic = { communityId, fixtureStart, conversationContract, admissionTrust: { community_id: communityId, policy_digest: policyDigest, issuer_public_key: [...issuerPublic] },
     accounting: { artifactBaseUrl: origin + '/runtime/', manifestSha256, artifactLimits: limits, policy,
       checkpointPeriodSeconds: 100, operatorPublicKey, requestSeconds: 90,
       checkpointLimits: { maxBytes: 262144, maxMapEntries: 128, maxSlots: 32 }, maxJournalBytes: 786432,

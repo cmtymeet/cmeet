@@ -1,5 +1,6 @@
 import * as cmsg from '@corbet-labs/cmsg';
 import { createPeerChannel } from '@corbet-labs/cmsg/peer-channel';
+import { createAdmissionJournal } from './conversation-renewal.js';
 import { createAccountingSession } from './accounting.js';
 import { encode, decode, utf8, decoder, positive, exact } from './encoding.js';
 
@@ -12,7 +13,7 @@ const MUTATIONS = new Set(['receive', 'beginLiveSession', 'clearLiveControlsFor'
   'cancelLiveOpening', 'loseLiveSession', 'createGroup', 'keyPackage', 'add', 'beginFirstContact',
   'requireActiveReservations', 'setOwnReservationChallenge', 'authorizeIncomingReservation',
   'bindActiveReservations', 'stageAccountedInvitation', 'completeAccountedInvitation',
-  'cancelAccountedInvitation', 'closeContact', 'applyDeadlines', 'renewDeviceAdmission', 'invalidateReservation']);
+  'cancelAccountedInvitation', 'receiveAdmissionRenewal', 'closeContact', 'applyDeadlines', 'renewDeviceAdmission', 'invalidateReservation']);
 
 /** The website selects peers and renders messages. cmsg owns each durable MLS
  * journal and delivery gate; cfrm owns the account opening, proofs and ledger. */
@@ -33,7 +34,7 @@ export async function createConversations({ api, store, wallet, device, authorit
   const saved = await store.read();
   const records = new Map(Object.entries(saved.conversations ?? {}));
   if (records.size > maximum) throw new Error('Conversation storage capacity exceeded');
-  const rows = new Map(), profiles = new Map(), parked = new Set();
+  const rows = new Map(), loading = new Map(), profiles = new Map(), parked = new Set(), channels = new Set();
   let selected = null, closed = false, closing, pending = 0, accounting, accountQueue = Promise.resolve();
   function accountGate(action) {
     const next = accountQueue.catch(() => {}).then(action);
@@ -53,7 +54,7 @@ export async function createConversations({ api, store, wallet, device, authorit
       online: Boolean(row?.live && !row.live.closed), contactState: awaitingAnswer ? 'awaitingAnswer' : record.phase,
       canSendIntroduction: awaitingAnswer && (record.role === 'initiator'
         ? !record.messages?.some(message => message.outgoing) : record.introReceived === true),
-      pendingContact: record.phase === 'awaitingAcceptance',
+      pendingContact: record.phase === 'awaitingAcceptance' && Boolean(row?.accept && row.channel && !row.channel.closed),
       lastMessage: record.messages?.at(-1)?.text ?? '', role: record.role };
   }
   function emit() {
@@ -64,6 +65,7 @@ export async function createConversations({ api, store, wallet, device, authorit
     let value;
     await store.update(state => {
       const conversations = state.conversations ?? {};
+      if (!Object.hasOwn(conversations, id) && Object.keys(conversations).length >= maximum) throw new Error('Conversation capacity reached');
       value = change(structuredClone(conversations[id] ?? {}));
       return { ...state, conversations: { ...conversations, [id]: value } };
     });
@@ -71,6 +73,14 @@ export async function createConversations({ api, store, wallet, device, authorit
     return value;
   }
   async function load(id, role) {
+    if (closing) throw new Error('Conversations are closing');
+    if (rows.has(id)) return rows.get(id);
+    if (loading.has(id)) return loading.get(id);
+    const task = createRow(id, role).finally(() => loading.delete(id));
+    loading.set(id, task);
+    return task;
+  }
+  async function createRow(id, role) {
     requireOpen(); memberId(id);
     if (id === self) throw new Error('A conversation needs another member');
     if (rows.has(id)) return rows.get(id);
@@ -90,10 +100,18 @@ export async function createConversations({ api, store, wallet, device, authorit
         inbox = cmsg.BrowserInbox.newAccounted(copied); copied = null;
       } finally { copied?.free(); snapshot?.fill(0); }
     }
-    if (inbox.memberId() !== self) { inbox.free(); throw new Error('Stored conversation identity mismatch'); }
-    const row = { id, rawInbox: inbox, context, persist: inboxStore.persist(id), queue: Promise.resolve(),
-      channel: null, live: null, needsRebind: true, ownProofValid: false,
-      pendingAdmissionWires: records.get(id)?.admissionWire ? [decode(records.get(id).admissionWire)] : [] };
+    // The snapshot AEAD binds community/self/peer. A restored certificate may
+    // be expired until the ordered renewal exchange; its device key must still
+    // equal the freshly authenticated wallet device.
+    if (encode(inbox.chatPublicKey()) !== encode(device.chatPublicKey())) {
+      inbox.free(); throw new Error('Stored conversation device mismatch');
+    }
+    let journal;
+    try { journal = await createAdmissionJournal({ durable, key: wrappingKey, context,
+      persist: inboxStore.persist(id), authorityTag }); }
+    catch (error) { inbox.free(); throw error; }
+    const row = { id, rawInbox: inbox, context, persist: journal.persist, journal, queue: Promise.resolve(),
+      channel: null, live: null, needsRebind: true, ownProofValid: false };
     row.mutate = action => {
       const next = row.queue.catch(() => {}).then(() => { requireOpen(); return action(); });
       row.queue = next.catch(() => {}); return next;
@@ -112,46 +130,100 @@ export async function createConversations({ api, store, wallet, device, authorit
     return row;
   }
   const args = row => [wrappingKey, row.context, row.persist];
-  const interruptedPhases = new Set(['offered', 'staged', 'awaitingPeer', 'awaitingAcceptance']);
   async function restoreDurableRow(row) {
-    const record = records.get(row.id);
-    if (!record) return;
-    // cmsg restores the encrypted journal but intentionally cancels ephemeral
-    // live sessions. The invitation peer channel has no resumable protocol, so
-    // never expose a stale reservation as an actionable invitation after reload.
-    if (interruptedPhases.has(record.phase)) {
-      await row.inbox.cancelAccountedInvitation(...args(row));
-      parked.delete(row.id);
-      await save(row.id, value => ({ ...value, phase: 'closed', recovery: 'interrupted' }));
-      return;
-    }
-    if (row.pendingAdmissionWires.length === 0 && (record.phase === 'ready' || record.phase === 'consented')
-        && record.authorityTag !== authorityTag) {
-      const wire = await row.inbox.renewDeviceAdmission(JSON.stringify(authority.admission),
-        JSON.stringify(authority.authorization), ...args(row));
-      if (!(wire instanceof Uint8Array) || wire.length === 0) throw new Error('Device admission renewal failed');
-      row.pendingAdmissionWires.push(wire);
-      await save(row.id, value => ({ ...value, authorityTag, admissionWire: encode(wire) }));
-    }
-    // BrowserInbox.restore cancels a live session which was active at the time
-    // of the crash. Reconcile its durable delivery journal before rendering it.
+    // Restoring cmsg cancels old live payload sessions. Preserve the actual
+    // invitation/accounting state; losing a transport never means Close.
     await updateDeliveries(row);
   }
-  async function flushAdmission(row) {
-    if (row.pendingAdmissionWires.length === 0) return;
-    const wires = row.pendingAdmissionWires.splice(0);
-    try {
-      for (const wire of wires) await row.channel.lane('mls').send(wire);
-      await save(row.id, value => ({ ...value, admissionWire: null, authorityTag }));
-      for (const wire of wires) wire.fill?.(0);
-    } catch (error) {
-      row.pendingAdmissionWires.unshift(...wires);
-      throw error;
+  async function renewForResume(row, lane, leader) {
+    await row.journal.exchange(lane, { leader, inbox: row.rawInbox, mutate: row.mutate,
+      args: args(row), authority });
+    await row.mutate(() => row.rawInbox.prepareAccountingContact(row.id));
+    row.needsRebind = true; row.ownProofValid = false;
+  }
+  const initialPhases = new Set(['offered', 'awaitingPeer', 'staged', 'awaitingAcceptance']);
+  function initialPhase(value) { return typeof value === 'string' && initialPhases.has(value); }
+  function storedNonce(row) {
+    const value = records.get(row.id)?.nonce;
+    if (typeof value !== 'string') throw new Error('Invitation nonce is unavailable');
+    decode(value, 32);
+    return value;
+  }
+  function storedProof(row, name) {
+    const value = row[name] ?? records.get(row.id)?.[name];
+    if (!value || typeof value !== 'object') throw new Error('Reservation evidence is unavailable');
+    return value;
+  }
+  async function invitationArtifacts(row) {
+    const record = records.get(row.id);
+    if (!record?.welcome || !record.contactPolicy || !record.reservationPolicy) throw new Error('Invitation recovery state is unavailable');
+    const welcome = decode(record.welcome);
+    exact(record.contactPolicy, ['response_deadline', 'max_intro_bytes']);
+    exact(record.reservationPolicy, ['statePolicyDigest', 'openedAt', 'abandonAfter']);
+    return { welcome, contactPolicy: record.contactPolicy, reservationPolicy: record.reservationPolicy };
+  }
+  async function setResumeAccept(row, lane) {
+    row.accept = async () => {
+      const record = records.get(row.id);
+      const outgoingProof = storedProof(row, 'outgoingProof');
+      const incoming = await accountGate(async () => {
+        const completed = await row.mutate(() => row.rawInbox.isKnown(row.id));
+        if (!completed) await row.inbox.authorizeIncomingReservation(json(outgoingProof), verifier, ...args(row));
+        // Regenerate from the same retained event after reload or renewal.
+        // A previously transmitted proof may certify an older account state.
+        const proof = await activate(row, 1);
+        await bind(row, outgoingProof, proof, !completed);
+        await save(row.id, value => ({ ...value, outgoingProof, incomingProof: proof }));
+        row.incomingProof = proof;
+        return proof;
+      });
+      await send(lane, 'reservation', { proof: incoming });
+      await receive(lane, 'bound');
+      await send(lane, 'bound');
+      await connected(row, lane, Uint8Array.from(records.get(row.id).peerDevice), 'consented');
+    };
+  }
+  async function receiveInitialReservation(row, lane, message) {
+    exact(message, ['version', 'kind', 'proof']);
+    if (message.version !== 1 || message.kind !== 'reservation' || !message.proof) throw new Error('Invalid reservation recovery');
+    const context = JSON.stringify((await contexts(row)).outgoing);
+    await verifier(json(message.proof), context, false);
+    row.outgoingProof = message.proof;
+    await save(row.id, value => ({ ...value, phase: 'awaitingAcceptance', outgoingProof: message.proof, authorityTag }));
+    await setResumeAccept(row, lane);
+  }
+  async function recoverRecipient(row, lane, initial) {
+    const record = records.get(row.id);
+    if (!['staged', 'awaitingAcceptance'].includes(record.phase)) throw new Error('Invitation recovery state mismatch');
+    if (initial.nonce !== storedNonce(row)) throw new Error('Invitation recovery nonce mismatch');
+    await send(lane, 'resume', { phase: record.phase, nonce: record.nonce });
+    await renewForResume(row, lane, false);
+    const next = parse(await lane.receive());
+    if (next.kind === 'welcome') {
+      exact(next, ['version', 'kind', 'welcome', 'nonce', 'contactPolicy', 'reservationPolicy', 'challenge']);
+      if (next.version !== 1 || next.nonce !== record.nonce) throw new Error('Invitation recovery rejected');
+      const bytes = decode(next.welcome);
+      try {
+        if (JSON.stringify(next.contactPolicy) !== JSON.stringify(record.contactPolicy)
+            || JSON.stringify(next.reservationPolicy) !== JSON.stringify(record.reservationPolicy)) throw new Error('Invitation policy mismatch');
+        // cmsg authenticates the original Welcome hash for an already staged
+        // group. Re-consuming its MLS KeyPackage here would reject recovery.
+        await row.inbox.stageAccountedInvitation(bytes, decode(next.nonce), JSON.stringify(next.contactPolicy), JSON.stringify(next.reservationPolicy), ...args(row));
+      } finally { bytes.fill(0); }
+      const expected = await contexts(row);
+      await send(lane, 'staged', { challenge: expected.outgoing.expected.challenge });
+      const reservation = parse(await lane.receive());
+      await receiveInitialReservation(row, lane, reservation);
+      return;
     }
+    await receiveInitialReservation(row, lane, next);
   }
   function channel(raw) {
-    return createPeerChannel(raw, { maxFrameBytes: 1_048_575, maxQueuedFrames: settings.maxQueuedFrames,
+    const result = createPeerChannel(raw, { maxFrameBytes: 1_048_575, maxQueuedFrames: settings.maxQueuedFrames,
       keepaliveMs: settings.keepaliveMs, receiveDeadlineMs: settings.handshakeDeadlineMs });
+    for (const existing of channels) if (existing.closed) channels.delete(existing);
+    channels.add(result);
+    return result;
   }
   async function receive(lane, kind) {
     const message = parse(await lane.receive());
@@ -190,12 +262,38 @@ export async function createConversations({ api, store, wallet, device, authorit
     await bind(row, record.outgoingProof, record.incomingProof);
   }
   async function connected(row, lane, peerDevice, phase = 'ready') {
+    if (closing || closed) throw new Error('Conversations are closing');
     const until = Math.min(now() + liveSeconds, authority.admission.expiresAt, authority.authorization.expiresAt);
-    row.live = await cmsg.LiveInboxStream.open(row.channel.lane('mls'), row.inbox,
-      { peerDevice, until, key: wrappingKey, context: row.context, persist: row.persist });
-    await flushAdmission(row);
-    await save(row.id, value => ({ ...value, phase, authorityTag,
-      ...(phase === 'consented' ? { answerReceived: false } : {}) }));
+    row.live = await cmsg.LiveInboxStream.open(row.channel.lane('mls'), row.rawInbox,
+      { peerDevice, until, key: wrappingKey, context: row.context, persist: row.persist,
+        schedule(category, operation) {
+          if (category === 'send' || category === 'receive') {
+            const result = accountGate(async () => {
+              if (['ready', 'consented'].includes(records.get(row.id)?.phase)) await ensureBound(row);
+              return row.mutate(operation);
+            });
+            return result.then(value => {
+              // LiveInboxStream consumes ACK controls internally. Notify the
+              // application after every persisted receive, including an ACK
+              // with no following text, without awaiting the account queue
+              // from inside the operation that currently owns it.
+              if (category === 'receive' && row.live && !closing) {
+                const activeChannel = row.channel, activeLive = row.live;
+                background(progress(row).catch(() => disconnect(row, activeChannel, activeLive)));
+              }
+              return value;
+            });
+          }
+          return row.mutate(operation);
+        },
+      });
+    await row.journal.acknowledge(row.rawInbox, row.mutate, args(row));
+    row.needsRebind = true; row.ownProofValid = false;
+    await save(row.id, value => {
+      const next = { ...value, phase, authorityTag, ...(phase === 'consented' ? { answerReceived: false } : {}) };
+      for (const key of ['welcome', 'contactPolicy', 'reservationPolicy', 'challenge', 'stagedChallenge']) delete next[key];
+      return next;
+    });
     background(readMessages(row));
     background(readAccounting(row));
     background(sendReceipt(row));
@@ -206,12 +304,49 @@ export async function createConversations({ api, store, wallet, device, authorit
     row.channel = channel(opened.stream);
     const lane = row.channel.lane('invitation'), record = records.get(row.id);
     if (record.phase === 'ready' || record.phase === 'consented') {
-      row.inbox.prepareAccountingContact(row.id);
       await send(lane, 'resume', { memberId: self, peerId: row.id });
       await receive(lane, 'resume');
+      await renewForResume(row, lane, true);
       const peerDevice = records.get(row.id).peerDevice;
       if (!Array.isArray(peerDevice) || peerDevice.length === 0) throw new Error('Stored peer device is unavailable');
       await connected(row, lane, Uint8Array.from(peerDevice), record.phase);
+      return;
+    }
+    if (initialPhase(record.phase)) {
+      if (record.role !== 'initiator') throw new Error('The inviter must reconnect to finish this introduction');
+      await send(lane, 'resumeInvitation', { memberId: self, peerId: row.id, phase: record.phase, nonce: storedNonce(row) });
+      const reply = await receive(lane, 'resume');
+      exact(reply, ['version', 'kind', 'phase', 'nonce']);
+      if (reply.nonce !== record.nonce || !initialPhase(reply.phase)) throw new Error('Invitation recovery rejected');
+      await renewForResume(row, lane, true);
+      let outgoingProof = row.outgoingProof ?? record.outgoingProof;
+      if (record.phase === 'offered') {
+        const artifacts = await invitationArtifacts(row);
+        try {
+          await send(lane, 'welcome', { welcome: encode(artifacts.welcome), nonce: record.nonce,
+            contactPolicy: artifacts.contactPolicy, reservationPolicy: artifacts.reservationPolicy,
+            challenge: Array.from(decode(record.challenge, 32)) });
+        } finally { artifacts.welcome.fill(0); }
+        const staged = await receive(lane, 'staged');
+        exact(staged, ['version', 'kind', 'challenge']);
+        if (staged.version !== 1 || staged.kind !== 'staged') throw new Error('Invitation recovery rejected');
+        const challenge = Uint8Array.from(staged.challenge);
+        await row.inbox.setOwnReservationChallenge(challenge, ...args(row));
+        outgoingProof = await accountGate(() => activate(row, 0));
+        await save(row.id, value => ({ ...value, phase: 'awaitingPeer', outgoingProof, authorityTag }));
+      } else {
+        outgoingProof = await accountGate(() => activate(row, 0));
+        await save(row.id, value => ({ ...value, outgoingProof, authorityTag }));
+      }
+      await send(lane, 'reservation', { proof: outgoingProof });
+      const incoming = await receive(lane, 'reservation');
+      exact(incoming, ['version', 'kind', 'proof']);
+      await accountGate(() => bind(row, outgoingProof, incoming.proof));
+      await send(lane, 'bound');
+      await receive(lane, 'bound');
+      const peerDevice = records.get(row.id).peerDevice;
+      if (!Array.isArray(peerDevice) || peerDevice.length === 0) throw new Error('Stored peer device is unavailable');
+      await connected(row, lane, Uint8Array.from(peerDevice));
       return;
     }
     if (record.phase !== 'prepared') throw new Error('This introduction must finish or expire before another starts');
@@ -227,8 +362,10 @@ export async function createConversations({ api, store, wallet, device, authorit
       abandonAfter: config.accounting.policy.abandonAfter };
     await row.inbox.beginFirstContact(row.id, decode(nonce), 'initiator', expiresAt, contactPolicy.max_intro_bytes, ...args(row));
     const own = JSON.parse(await row.inbox.requireActiveReservations(JSON.stringify(reservationPolicy), ...args(row)));
-    await save(row.id, value => ({ ...value, nonce, openedAt, expiresAt,
-      peerDevice: own.incoming.devicePublicKey, phase: 'offered', authorityTag }));
+      await save(row.id, value => ({ ...value, nonce, openedAt, expiresAt,
+        peerDevice: own.incoming.devicePublicKey, phase: 'offered', authorityTag,
+        welcome: encode(invitation.welcome), contactPolicy, reservationPolicy,
+        challenge: encode(Uint8Array.from(own.incoming.expected.challenge)) }));
     try {
       await send(lane, 'welcome', { welcome: encode(invitation.welcome), nonce, contactPolicy, reservationPolicy,
         challenge: own.incoming.expected.challenge });
@@ -237,8 +374,8 @@ export async function createConversations({ api, store, wallet, device, authorit
     exact(staged, ['version', 'kind', 'challenge']);
     await row.inbox.setOwnReservationChallenge(Uint8Array.from(staged.challenge), ...args(row));
     const outgoingProof = await accountGate(() => activate(row, 0));
+    await save(row.id, value => ({ ...value, phase: 'awaitingPeer', authorityTag, outgoingProof }));
     await send(lane, 'reservation', { proof: outgoingProof });
-    await save(row.id, value => ({ ...value, phase: 'awaitingPeer', authorityTag }));
     // Consent can be given later while both clients remain online. No message
     // plaintext is released during this wait.
     const incoming = await receive(lane, 'reservation');
@@ -252,15 +389,18 @@ export async function createConversations({ api, store, wallet, device, authorit
   }
   async function acceptStream(raw) {
     requireOpen();
+    if (closing) { raw.close(); return; }
     if (pending + parked.size >= maxPending) { raw.close(); return; }
     pending++;
     const selectedChannel = channel(raw), lane = selectedChannel.lane('invitation');
-    let row;
+    let row, opening;
     try {
       const offer = parse(await lane.receive());
-      exact(offer, ['version', 'kind', 'memberId', 'peerId']);
-      if (offer.version !== 1 || !['offer', 'resume'].includes(offer.kind) || offer.peerId !== self) throw new Error('Invitation rejected');
+      if (offer.kind === 'resumeInvitation') exact(offer, ['version', 'kind', 'memberId', 'peerId', 'phase', 'nonce']);
+      else exact(offer, ['version', 'kind', 'memberId', 'peerId']);
+      if (offer.version !== 1 || !['offer', 'resume', 'resumeInvitation'].includes(offer.kind) || offer.peerId !== self) throw new Error('Invitation rejected');
       memberId(offer.memberId);
+      if (offer.kind === 'resumeInvitation' && !initialPhase(offer.phase)) throw new Error('Invitation recovery rejected');
       const existing = rows.get(offer.memberId);
       if (existing?.opening) throw new Error('Conversation is already opening');
       row = await load(offer.memberId, 'recipient');
@@ -268,17 +408,28 @@ export async function createConversations({ api, store, wallet, device, authorit
       if (records.get(row.id).phase === 'prepared' && records.get(row.id).role !== 'recipient') {
         throw new Error('Conversation already has an outgoing introduction');
       }
-      if (row.inbox.isBlocked(row.id) || row.inbox.isClosed(row.id)) throw new Error('Contact closed');
+      if (await row.mutate(() => row.rawInbox.isBlocked(row.id) || row.rawInbox.isClosed(row.id))) throw new Error('Contact closed');
+      if (closing || row.opening || (row.channel && !row.channel.closed)) throw new Error('Conversation is already opening');
+      await disconnect(row);
+      if (closing || row.opening || (row.channel && !row.channel.closed)) throw new Error('Conversation is already opening');
+      opening = Symbol('inbound opening'); row.opening = opening;
       row.channel = selectedChannel;
-      if (offer.kind === 'resume') {
-        if (!['ready', 'consented'].includes(records.get(row.id).phase)) throw new Error('No established conversation');
-        row.inbox.prepareAccountingContact(row.id);
-        await send(lane, 'resume');
-        // The existing authenticated MLS group supplies the peer device; the
-        // unsigned routing member ID never selects a replacement key.
-        const peerDevice = records.get(row.id).peerDevice;
-        if (!Array.isArray(peerDevice) || peerDevice.length === 0) throw new Error('Stored peer device is unavailable');
-        await connected(row, lane, Uint8Array.from(peerDevice), records.get(row.id).phase);
+      if (offer.kind === 'resume' || offer.kind === 'resumeInvitation') {
+        const phase = records.get(row.id).phase;
+        if (offer.kind === 'resume' && ['ready', 'consented'].includes(phase)) {
+          await send(lane, 'resume');
+          await renewForResume(row, lane, false);
+          // The existing authenticated MLS group supplies the peer device; the
+          // unsigned routing member ID never selects a replacement key.
+          const peerDevice = records.get(row.id).peerDevice;
+          if (!Array.isArray(peerDevice) || peerDevice.length === 0) throw new Error('Stored peer device is unavailable');
+          await connected(row, lane, Uint8Array.from(peerDevice), phase);
+        } else {
+          if (offer.kind !== 'resumeInvitation' || records.get(row.id).role !== 'recipient') throw new Error('Invitation recovery role mismatch');
+          await recoverRecipient(row, lane, offer);
+          parked.add(row.id);
+          emit();
+        }
         return;
       }
       if (records.get(row.id).phase !== 'prepared') throw new Error('An introduction already exists');
@@ -288,7 +439,6 @@ export async function createConversations({ api, store, wallet, device, authorit
       const welcome = await receive(lane, 'welcome');
       exact(welcome, ['version', 'kind', 'welcome', 'nonce', 'contactPolicy', 'reservationPolicy', 'challenge']);
       const bytes = decode(welcome.welcome);
-      if (row.inbox.invitationSender(bytes) !== row.id) throw new Error('Invitation identity mismatch');
       const rp = welcome.reservationPolicy;
       exact(rp, ['statePolicyDigest', 'openedAt', 'abandonAfter']);
       if (JSON.stringify(rp.statePolicyDigest) !== JSON.stringify(config.accounting.statePolicyDigest)
@@ -296,11 +446,16 @@ export async function createConversations({ api, store, wallet, device, authorit
       exact(welcome.contactPolicy, ['response_deadline', 'max_intro_bytes']);
       if (welcome.contactPolicy.response_deadline !== rp.openedAt + rp.abandonAfter
           || welcome.contactPolicy.max_intro_bytes !== maxMessageBytes + 256) throw new Error('Contact policy mismatch');
-      const staged = JSON.parse(await row.inbox.stageAccountedInvitation(bytes, decode(welcome.nonce),
-        JSON.stringify(welcome.contactPolicy), JSON.stringify(rp), ...args(row)));
+      let staged;
+      try {
+        if (await row.mutate(() => row.rawInbox.invitationSender(bytes)) !== row.id) throw new Error('Invitation identity mismatch');
+        staged = JSON.parse(await row.inbox.stageAccountedInvitation(bytes, decode(welcome.nonce),
+          JSON.stringify(welcome.contactPolicy), JSON.stringify(rp), ...args(row)));
+      } finally { bytes.fill(0); }
       await row.inbox.setOwnReservationChallenge(Uint8Array.from(welcome.challenge), ...args(row));
       await save(row.id, value => ({ ...value, nonce: welcome.nonce, openedAt: rp.openedAt,
         expiresAt: rp.openedAt + rp.abandonAfter, peerDevice: staged.outgoing.devicePublicKey,
+        contactPolicy: welcome.contactPolicy, reservationPolicy: rp,
         phase: 'staged', authorityTag }));
       await send(lane, 'staged', { challenge: staged.outgoing.expected.challenge });
       const outgoing = await receive(lane, 'reservation');
@@ -309,24 +464,13 @@ export async function createConversations({ api, store, wallet, device, authorit
       row.outgoingProof = outgoing.proof;
       await save(row.id, value => ({ ...value, phase: 'awaitingAcceptance', authorityTag,
         outgoingProof: row.outgoingProof }));
-      row.accept = async () => {
-        const incoming = await accountGate(async () => {
-          await row.inbox.authorizeIncomingReservation(json(row.outgoingProof), verifier, ...args(row));
-          const proof = await activate(row, 1);
-          await bind(row, row.outgoingProof, proof, true);
-          return proof;
-        });
-        await send(lane, 'reservation', { proof: incoming });
-        await receive(lane, 'bound');
-        await send(lane, 'bound');
-        await connected(row, lane, Uint8Array.from(records.get(row.id).peerDevice), 'consented');
-      };
+      await setResumeAccept(row, lane);
       parked.add(row.id);
       emit();
     } catch {
       selectedChannel.close();
       if (row) emit();
-    } finally { pending--; }
+    } finally { if (row && row.opening === opening) row.opening = null; pending--; }
   }
 
   async function message(row, value, direction, deliveryId) {
@@ -356,6 +500,15 @@ export async function createConversations({ api, store, wallet, device, authorit
       await save(row.id, value => ({ ...value, phase: 'ready', answerReceived: true }));
     }
   }
+  function progress(row) {
+    const next = (row.progressQueue ?? Promise.resolve()).catch(() => {}).then(async () => {
+      await updateDeliveries(row);
+      await updateResolution(row);
+      if (!closing && row.channel && !row.channel.closed) await sendReceipt(row);
+    });
+    row.progressQueue = next.catch(() => {});
+    return next;
+  }
   async function applyPeerEvidence(row) {
     const record = records.get(row.id);
     if (!record.event || record.settled) return;
@@ -382,17 +535,27 @@ export async function createConversations({ api, store, wallet, device, authorit
     const next = (row.evidenceQueue ?? Promise.resolve()).catch(() => {}).then(() => applyPeerEvidence(row));
     row.evidenceQueue = next.catch(() => {}); return next;
   }
-  async function sendReceipt(row) {
+  function sendReceipt(row) {
+    const next = (row.receiptQueue ?? Promise.resolve()).catch(() => {}).then(() => publishReceipt(row));
+    row.receiptQueue = next.catch(() => {});
+    return next;
+  }
+  async function publishReceipt(row) {
+    const activeChannel = row.channel;
+    if (!activeChannel || activeChannel.closed) return;
     if (records.get(row.id).role !== 'recipient' || !await row.mutate(() => row.rawInbox.outboundResolutionReceipt(row.id))) return;
+    if (row.receiptChannel === activeChannel) { await evidence(row); return; }
     const receipt = records.get(row.id).ownReceipt ?? await accountGate(() => row.mutate(() => accounting.receipt({ inbox: row.rawInbox, peer: row.id })));
     await save(row.id, value => ({ ...value, ownReceipt: receipt }));
-    await send(row.channel.lane('accounting'), 'receipt', { receipt });
+    await send(activeChannel.lane('accounting'), 'receipt', { receipt });
+    row.receiptChannel = activeChannel;
     await evidence(row);
   }
   async function readAccounting(row) {
+    const selectedChannel = row.channel, selectedLive = row.live;
     try {
-      while (!closed && !row.channel.closed) {
-        const input = parse(await row.channel.lane('accounting').receive());
+      while (!closed && !selectedChannel.closed) {
+        const input = parse(await selectedChannel.lane('accounting').receive());
         if (input?.version !== 1) throw new Error('Invalid peer evidence');
         if (input.kind === 'receipt') {
           exact(input, ['version', 'kind', 'receipt']);
@@ -407,12 +570,13 @@ export async function createConversations({ api, store, wallet, device, authorit
         } else throw new Error('Unknown peer evidence');
         await evidence(row);
       }
-    } catch { row.channel.close(); emit(); }
+    } catch { await disconnect(row, selectedChannel, selectedLive); emit(); }
   }
   async function readMessages(row) {
+    const selectedChannel = row.channel, selectedLive = row.live;
     try {
-      while (!closed && !row.live.closed) {
-        const received = await row.live.receive();
+      while (!closed && !selectedLive.closed) {
+        const received = await selectedLive.receive();
         try {
           if (received.kind === 'bytes') {
             if (received.memberId !== row.id) throw new Error('Wrong message author');
@@ -428,7 +592,14 @@ export async function createConversations({ api, store, wallet, device, authorit
         await updateResolution(row);
         await evidence(row);
       }
-    } catch { row.channel.close(); emit(); }
+    } catch { await disconnect(row, selectedChannel, selectedLive); emit(); }
+  }
+  async function disconnect(row, selectedChannel = row.channel, selectedLive = row.live) {
+    selectedChannel?.close();
+    channels.delete(selectedChannel);
+    try { await selectedLive?.close(); } catch { /* cmsg retains any uncertain publication for restoration */ }
+    if (row.channel === selectedChannel) { row.channel = null; row.accept = null; parked.delete(row.id); }
+    if (row.live === selectedLive) row.live = null;
   }
   async function open(id) {
     if (closing) throw new Error('Conversations are closing');
@@ -438,28 +609,46 @@ export async function createConversations({ api, store, wallet, device, authorit
     if (row.channel && !row.channel.closed) { emit(); return summary(id); }
     if (records.get(id).phase === 'closed') throw new Error('This direct contact is closed');
     const task = (async () => {
-      try { await outgoing(row, await openStream(id)); }
-      catch { row.channel?.close(); emit(); }
+      try { await disconnect(row); await outgoing(row, await openStream(id)); }
+      catch { await disconnect(row); emit(); }
     })().finally(() => { row.opening = null; });
     row.opening = task;
     background(task); emit(); return summary(id);
   }
   async function sendText(text) {
     requireOpen();
+    if (closing) throw new Error('Conversations are closing');
     const row = rows.get(selected);
     if (!row?.live || row.live.closed || !['ready', 'consented'].includes(records.get(row.id).phase)) throw new Error('Both members must be connected');
     if (typeof text !== 'string' || !text.trim() || !text.isWellFormed() || utf8.encode(text).length > maxMessageBytes) throw new Error('Invalid text message');
     const value = { version: 1, kind: 'text', id: randomId(), text };
-    const previous = new Set((await row.mutate(() => JSON.parse(row.rawInbox.liveDeliveries()))).map(item => encode(Uint8Array.from(item.messageId))));
-    await row.live.send(json(value));
-    const delivery = (await row.mutate(() => JSON.parse(row.rawInbox.liveDeliveries()))).find(item => item.outgoing && !previous.has(encode(Uint8Array.from(item.messageId))));
-    if (!delivery) throw new Error('Message delivery journal missing');
-    await message(row, value, 'outgoing', encode(Uint8Array.from(delivery.messageId)));
-    await updateDeliveries(row);
-    await updateResolution(row);
-    await sendReceipt(row);
+    const selectedLive = row.live;
+    const task = (row.sendQueue ?? Promise.resolve()).catch(() => {}).then(async () => {
+      if (closing || selectedLive.closed || row.live !== selectedLive) throw new Error('The conversation disconnected');
+      const previous = new Set((await row.mutate(() => JSON.parse(row.rawInbox.liveDeliveries()))).map(item => encode(Uint8Array.from(item.messageId))));
+      // Retain the user's encrypted local intent before cmsg can publish or
+      // transmit it. A crash without a matching cmsg receipt stays unconfirmed.
+      await message(row, value, 'outgoing');
+      let failure;
+      try { await selectedLive.send(json(value)); } catch (error) { failure = error; }
+      const delivery = (await row.mutate(() => JSON.parse(row.rawInbox.liveDeliveries())))
+        .find(item => item.outgoing && !previous.has(encode(Uint8Array.from(item.messageId))));
+      await save(row.id, record => ({ ...record, messages: record.messages.map(item => item.id === value.id
+        ? { ...item, deliveryId: delivery ? encode(Uint8Array.from(delivery.messageId)) : null,
+          status: delivery?.status ?? 'unconfirmed' } : item) }));
+      if (failure) throw failure;
+      if (!delivery) throw new Error('Message delivery journal missing');
+      await updateDeliveries(row);
+      await updateResolution(row);
+      await sendReceipt(row);
+    });
+    row.sendQueue = task.catch(() => {});
+    background(task);
+    return task;
   }
   async function answer() {
+    requireOpen();
+    if (closing) throw new Error('Conversations are closing');
     const row = rows.get(selected);
     if (!row?.accept || records.get(row.id)?.phase !== 'awaitingAcceptance') throw new Error('There is no pending invitation to accept');
     const accept = row.accept; row.accept = null;
@@ -478,12 +667,15 @@ export async function createConversations({ api, store, wallet, device, authorit
     return summary(row.id);
   }
   async function decline() {
+    requireOpen();
+    if (closing) throw new Error('Conversations are closing');
     const row = rows.get(selected);
     if (!row) throw new Error('No selected conversation');
     if (records.get(row.id).phase === 'awaitingAcceptance') {
+      if (await row.mutate(() => row.rawInbox.isKnown(row.id))) throw new Error('This invitation has already been accepted');
       await row.inbox.cancelAccountedInvitation(...args(row));
       await save(row.id, value => ({ ...value, phase: 'closed' }));
-      row.channel?.close(); row.accept = null; parked.delete(row.id);
+      row.accept = null; parked.delete(row.id); await disconnect(row);
       return;
     }
     if (!row.live || row.live.closed) throw new Error('A live direct contact is required');
@@ -491,14 +683,18 @@ export async function createConversations({ api, store, wallet, device, authorit
     await row.channel.lane('mls').send(wire);
     await save(row.id, value => ({ ...value, phase: 'closed' }));
     await sendReceipt(row);
+    await disconnect(row);
   }
   async function maintain() {
-    if (closed) return;
+    if (closed || closing) return;
     const account = await accountGate(() => accounting.maintain());
     for (const row of rows.values()) {
       await row.inbox.applyDeadlines(...args(row));
       await updateDeliveries(row);
-      if (await row.mutate(() => row.rawInbox.isClosed(row.id)) && records.get(row.id).phase !== 'closed') await save(row.id, value => ({ ...value, phase: 'closed' }));
+      if (await row.mutate(() => row.rawInbox.isClosed(row.id))) {
+        if (records.get(row.id).phase !== 'closed') await save(row.id, value => ({ ...value, phase: 'closed' }));
+        await disconnect(row);
+      }
       if (records.get(row.id).phase !== 'awaitingAcceptance') parked.delete(row.id);
     }
     emit();
@@ -508,8 +704,11 @@ export async function createConversations({ api, store, wallet, device, authorit
     if (closing) return closing;
     if (closed) return;
     closing = (async () => {
+    for (const active of channels) active.close();
+    channels.clear();
+    await Promise.allSettled([...loading.values()]);
     for (const row of rows.values()) row.channel?.close();
-    await Promise.allSettled(Array.from(rows.values(), row => row.live?.close()));
+    await Promise.allSettled(Array.from(rows.values(), row => disconnect(row)));
     await Promise.allSettled([...tasks]);
     await Promise.allSettled(Array.from(rows.values(), row => row.queue));
     await accounting?.close();
@@ -519,16 +718,29 @@ export async function createConversations({ api, store, wallet, device, authorit
     })();
     return closing;
   }
-  accounting = await createAccountingSession({ api, store, wallet, device, authority, config,
-    beforeAccountApply: async () => {
-      for (const row of rows.values()) {
-        await row.inbox.invalidateReservation(...args(row));
-        row.needsRebind = true; row.ownProofValid = false;
-      }
-    } });
+  try {
+    accounting = await createAccountingSession({ api, store, wallet, device, authority, config,
+      beforeAccountApply: async () => {
+        for (const row of rows.values()) {
+          await row.inbox.invalidateReservation(...args(row));
+          row.needsRebind = true; row.ownProofValid = false;
+        }
+      } });
+  } catch (error) {
+    closed = true;
+    await Promise.allSettled(Array.from(rows.values(), row => disconnect(row)));
+    await Promise.allSettled(Array.from(rows.values(), row => row.queue ?? Promise.resolve()));
+    for (const row of rows.values()) row.rawInbox.free();
+    inboxStore.close(); wrappingKey.fill(0); rows.clear(); parked.clear();
+    throw error;
+  }
   return Object.freeze({
     async start() { const result = await accountGate(() => accounting.start()); emit(); return result; },
-    open, acceptStream, send: sendText, answer, decline, maintain, close,
+    open, send: sendText, close,
+    acceptStream: (...values) => { const task = acceptStream(...values); background(task); return task; },
+    answer: () => { const task = answer(); background(task); return task; },
+    decline: () => { const task = decline(); background(task); return task; },
+    maintain: () => { const task = maintain(); background(task); return task; },
     setProfiles(values) { profiles.clear(); for (const value of values) profiles.set(value.memberId, value); emit(); },
     deselect() { selected = null; onMessages?.([]); },
   });
