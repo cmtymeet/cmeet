@@ -110,7 +110,7 @@
 
   function normalize(next) {
     if (!next || typeof next !== 'object') return initialState;
-    return { ...initialState, ...next, error: next.error ? safeError(next.error) : null };
+    return { ...initialState, ...next, error: typeof next.error === 'string' ? next.error.slice(0, 240) : (next.error ? safeError(next.error) : null) };
   }
 
   onMount(() => {

@@ -15,7 +15,11 @@ capture() {
   exit "$status"
 }
 trap capture EXIT
-node .ci/prepare-sources.mjs 2>&1 | tee "$ARTIFACT_ROOT/source-preparation.log"
+if test -n "${REUSE_SOURCE_RUN:-}"; then
+  node .ci/reuse-sources.mjs 2>&1 | tee "$ARTIFACT_ROOT/source-reuse.log"
+else
+  node .ci/prepare-sources.mjs 2>&1 | tee "$ARTIFACT_ROOT/source-preparation.log"
+fi
 node --input-type=module <<'JS'
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';

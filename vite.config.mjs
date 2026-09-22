@@ -3,7 +3,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { fileURLToPath } from 'node:url';
 
-const polyfills = () => nodePolyfills({ globals: { Buffer: true, global: true, process: true }, protocolImports: true });
+const polyfills = () => nodePolyfills({ exclude: ['fs', 'fs/promises'], globals: { Buffer: true, global: true, process: true }, protocolImports: true });
 
 export default defineConfig({
   plugins: [svelte(), polyfills()],

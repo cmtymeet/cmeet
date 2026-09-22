@@ -13,6 +13,14 @@ on:
         description: Exact candidate cvld commit; omitted uses the reviewed source manifest
         type: string
         default: ''
+      reuse_source_run:
+        description: Prior successful source-preparation run for an app-only check
+        type: string
+        default: ''
+      reuse_source_sha:
+        description: Exact original cmeet SHA of the retained packages
+        type: string
+        default: ''
 permissions:
   contents: read
   actions: read
@@ -27,6 +35,8 @@ jobs:
       CI_COMMIT_SHA: ${{ github.sha }}
       GH_TOKEN: ${{ github.token }}
       CVLD_SOURCE_SHA: ${{ inputs.cvld_source_sha || '' }}
+      REUSE_SOURCE_RUN: ${{ inputs.reuse_source_run || '' }}
+      REUSE_SOURCE_SHA: ${{ inputs.reuse_source_sha || '' }}
       RESOLVE_DEPENDENCIES: ${{ github.event_name == 'workflow_dispatch' && inputs.resolve_dependencies && '1' || '0' }}
       CARGO_BUILD_JOBS: '2'
       CARGO_TARGET_DIR: ${{ github.workspace }}/.ci-work/target
@@ -39,6 +49,7 @@ jobs:
         with:
           node-version: '24'
       - name: Prepare runner tools
+        if: inputs.reuse_source_run == ''
         shell: bash
         run: |
           set -euo pipefail
@@ -48,6 +59,9 @@ jobs:
           printf 'BROWSER_BIN=%s\n' "$(command -v google-chrome || command -v chromium)" >> "$GITHUB_ENV"
           printf 'OPENSSL_INCLUDE_DIR=%s\n' "$(pkg-config --variable=includedir openssl)" >> "$GITHUB_ENV"
           printf 'OPENSSL_LIB_DIR=%s\n' "$(pkg-config --variable=libdir openssl)" >> "$GITHUB_ENV"
+      - name: Locate browser for retained source check
+        if: inputs.reuse_source_run != ''
+        run: printf 'BROWSER_BIN=%s\n' "$(command -v google-chrome || command -v chromium)" >> "$GITHUB_ENV"
       - name: Build source packages and run the website contract
         env:
           ARTIFACT_ROOT: ${{ runner.temp }}/cmeet-evidence
