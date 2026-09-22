@@ -43,14 +43,16 @@ function pair(drop) {
 }
 
 test('expired devices reconcile a lost MLS renewal from sealed checkpoints before generating fresh epochs', { timeout: 30000 }, async () => {
-  const originalNow = Date.now; let clock = 1000;
+  // OpenMLS allows one hour of clock skew when creating a KeyPackage. Keep
+  // the fixture epoch above that margin, including its expired-admission path.
+  const originalNow = Date.now, base = Math.floor(originalNow() / 1000); let clock = base;
   Date.now = () => clock * 1000;
   const rows = [];
   try {
     await cmsg.init({ module_or_path: await readFile(new URL(import.meta.resolve('@corbet-labs/cmsg/wasm-binary'))) });
     for (let index = 0; index < 2; index++) {
       const root = new cmsg.BrowserIdentity(community), member = new cmsg.BrowserMember();
-      const old = authority(root, member, 1000, 2000);
+      const old = authority(root, member, base, base + 1000);
       member.bindDeviceAdmission(JSON.stringify(old.admission), trust, JSON.stringify(old.authorization));
       rows.push({ root, member, key: random(), context: utf8.encode(`renewal-contract/${index}`), durable: null,
         tag: hash(JSON.stringify(old)), old });
@@ -59,7 +61,7 @@ test('expired devices reconcile a lost MLS renewal from sealed checkpoints befor
     const invitation = rows[0].member.add(rows[1].member.keyPackage());
     try { rows[1].member.join(invitation.welcome); } finally { invitation.free(); }
     for (const row of rows) {
-      row.next = authority(row.root, row.member, 3000, 9000);
+      row.next = authority(row.root, row.member, base + 2000, base + 8000);
       row.inbox = new cmsg.BrowserInbox(row.member); row.member = null;
       row.mutate = action => action(); // The fixture awaits every local mutation.
       row.persist = async (checkpoint, outbound, metadata) => {
@@ -82,7 +84,7 @@ test('expired devices reconcile a lost MLS renewal from sealed checkpoints befor
       leader: index === 0, inbox: row.inbox, mutate: row.mutate,
       args: [row.key, row.context, row.journal.persist], authority: row.next,
     }).catch(error => { lanes[index].close(); throw error; })));
-    clock = 3000;
+    clock = base + 2000;
     for (const row of rows) { await restore(row); assert.throws(() => row.inbox.memberId()); }
     const failed = await run(pair((index, value) => index === 1 && value.stage === 'follower'));
     assert(failed.every(value => value.status === 'rejected'));
