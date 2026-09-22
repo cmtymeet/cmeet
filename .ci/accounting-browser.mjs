@@ -32,17 +32,22 @@ const operatorKey = createPrivateKey({ key: Buffer.concat([Buffer.from('302e0201
 const operatorPublicKey = createPublicKey(operatorKey).export({ format: 'jwk' }).x;
 const issuer = generateKeyPairSync('ed25519'), issuerPublic = Buffer.from(issuer.publicKey.export({ format: 'jwk' }).x, 'base64url');
 const communityId = 'cmeet-accounting-contract', policyDigest = randomBytes(32).toString('base64url');
+// OpenMLS 0.9 subtracts a one-hour skew margin from KeyPackage creation time.
+// Keep the isolated clock above that margin and inside the pinned proof policy.
+const fixtureStart = 5000;
+assert(fixtureStart > 3600 && fixtureStart + 700 < policy.policyValidUntil);
 const limits = { maxArtifactBytes: 64 * 1024 * 1024, maxTotalBytes: 128 * 1024 * 1024, maxProofBytes: 20_000, memoryPages: 32768 };
-const config = { communityId, policyDigest, issuerPublicKey: [...issuerPublic], now: 1000,
+const config = { communityId, policyDigest, issuerPublicKey: [...issuerPublic], now: fixtureStart,
   database: join(work, 'account.sqlite'), operatorKey: join(work, 'operator.key'), node: process.execPath,
   verifierScript: fileURLToPath(import.meta.resolve('cfrm/accounting/node-verifier')), artifactConfig: artifactConfigPath,
   scope: { circuitDigest: [...Buffer.from(manifest.circuitSha256, 'hex')], verifyingKeyDigest: [...Buffer.from(manifest.vkSha256, 'hex')] },
   policy: { account: policy, maxAuthorizationSeconds: 100, maxProofBytes: limits.maxProofBytes, checkpointPeriodSeconds: 100 }, checkpoints: [] };
 const evidence = { source: process.env.CI_COMMIT_SHA, runtimeManifestSha256: manifestSha256, ok: false, checks: [], stages: [],
+  fixtureStart,
   clock: 'explicit CI-only controlled clock; production Worker clock unchanged',
   scope: 'actual Worker factory, signed native AccountService, staged cmsg admission, encrypted persistence and Close settlement',
   excluded: ['voucher eligibility', 'UI', 'live payload delivery', 'Tor', 'Answer acknowledgment settlement'] };
-let clock = 1000, loseNextMember, applyCount = 0, enrollment, enrollmentStore, hashRuntime, browser, server, queue = Promise.resolve();
+let clock = fixtureStart, loseNextMember, applyCount = 0, enrollment, enrollmentStore, hashRuntime, browser, server, queue = Promise.resolve();
 const applied = new Map(), currentEntries = new Map(), pageErrors = [];
 async function writeConfig() { await writeFile(configPath, JSON.stringify({ ...config, now: clock }), { mode: 0o600 }); }
 function native(operation, input) {
@@ -185,7 +190,7 @@ try {
   }));
   await page.goto(origin, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => typeof window.runAccountingFixture === 'function');
-  const configPublic = { communityId, admissionTrust: { community_id: communityId, policy_digest: policyDigest, issuer_public_key: [...issuerPublic] },
+  const configPublic = { communityId, fixtureStart, admissionTrust: { community_id: communityId, policy_digest: policyDigest, issuer_public_key: [...issuerPublic] },
     accounting: { artifactBaseUrl: origin + '/runtime/', manifestSha256, artifactLimits: limits, policy,
       checkpointPeriodSeconds: 100, operatorPublicKey, requestSeconds: 90,
       checkpointLimits: { maxBytes: 262144, maxMapEntries: 128, maxSlots: 32 }, maxJournalBytes: 786432,

@@ -7,7 +7,8 @@ import { createAccountingSession } from '../../src/lib/accounting.js';
 import { openWalletStore } from '../../src/lib/wallet-store.js';
 import { encode, utf8 } from '../../src/lib/encoding.js';
 
-let fixtureNow = 1000;
+// The driver supplies the same trusted CI clock before any member is created.
+let fixtureNow = 5000;
 Date.now = () => fixtureNow * 1000;
 const NativeWorker = globalThis.Worker, workers = new Set();
 globalThis.Worker = class extends NativeWorker {
@@ -38,6 +39,14 @@ globalThis.Worker = class extends NativeWorker {
 const json = value => utf8.encode(JSON.stringify(value));
 const random = () => crypto.getRandomValues(new Uint8Array(32));
 const check = async (value, label) => { if (!value) throw new Error(label); await window.fixtureReport(label); };
+async function stage(label, operation) {
+  await window.fixtureStage(label);
+  try {
+    const value = await operation();
+    await window.fixtureStage(label + ' complete');
+    return value;
+  } catch (error) { throw new Error(`${label}: ${String(error)}`); }
+}
 async function refuses(action, label) {
   let rejected = false; try { await action(); } catch { rejected = true; }
   await check(rejected, label);
@@ -82,6 +91,7 @@ const contexts = value => JSON.parse(value.inbox.reservationContexts());
 const verifier = value => (bytes, context, own) => value.session.verifyPeer(bytes, context, own);
 
 window.runAccountingFixture = async config => {
+  if (config.fixtureStart !== fixtureNow || fixtureNow <= 3600) throw new Error('Trusted fixture clock mismatch');
   await cmsg.init({ module_or_path: wasmUrl });
   inboxStore = await cmsg.openIndexedDbInboxStore('cmeet-accounting-contract-inboxes');
   const a = await client(config), b = await client(config);
@@ -90,22 +100,24 @@ window.runAccountingFixture = async config => {
     const started = await a.session.start();
     await check(started.status === 'eligible' && started.acceptedVersion === 0, 'real Worker factory proves and durably accepts genesis');
     const pending = await b.session.start();
-    await check(pending.status === 'pending' && pending.eligibleAt === 1100, 'frozen common roster reports pending without a second genesis');
-    await advance(1100);
+    await check(pending.status === 'pending' && pending.eligibleAt === config.fixtureStart + 100, 'frozen common roster reports pending without a second genesis');
+    await advance(config.fixtureStart + 100);
     const preserved = await a.session.maintain(), joined = await b.session.maintain();
     await check(preserved.acceptedVersion === 0 && joined.acceptedVersion === 0,
       'verified roster refresh preserves accepted state and admits the pending member next slot');
     const nonce = random(), openedAt = fixtureNow, expiresAt = fixtureNow + config.accounting.policy.abandonAfter;
     const cp = { response_deadline: expiresAt, max_intro_bytes: 2048 };
     const rp = { statePolicyDigest: started.statePolicyDigest, openedAt, abandonAfter: config.accounting.policy.abandonAfter };
-    await a.inbox.createGroup(...a.args);
-    const packageBytes = await b.inbox.keyPackage(...b.args);
-    const invitation = await a.inbox.add(packageBytes, ...a.args); packageBytes.fill(0);
+    await stage('create actual MLS group', () => a.inbox.createGroup(...a.args));
+    const packageBytes = await stage('create actual MLS key package', () => b.inbox.keyPackage(...b.args));
+    let invitation;
+    try { invitation = await stage('add actual MLS key package', () => a.inbox.add(packageBytes, ...a.args)); }
+    finally { packageBytes.fill(0); }
     let offered, staged;
     try {
-      await a.inbox.beginFirstContact(b.memberId, nonce, 'initiator', expiresAt, cp.max_intro_bytes, ...a.args);
-      offered = JSON.parse(await a.inbox.requireActiveReservations(JSON.stringify(rp), ...a.args));
-      staged = JSON.parse(await b.inbox.stageAccountedInvitation(invitation.welcome, nonce, JSON.stringify(cp), JSON.stringify(rp), ...b.args));
+      await stage('begin first-contact contract', () => a.inbox.beginFirstContact(b.memberId, nonce, 'initiator', expiresAt, cp.max_intro_bytes, ...a.args));
+      offered = JSON.parse(await stage('require actual account reservations', () => a.inbox.requireActiveReservations(JSON.stringify(rp), ...a.args)));
+      staged = JSON.parse(await stage('stage actual accounted MLS invitation', () => b.inbox.stageAccountedInvitation(invitation.welcome, nonce, JSON.stringify(cp), JSON.stringify(rp), ...b.args)));
     } finally { invitation.free(); }
     a.staged = b.staged = true;
     await a.inbox.setOwnReservationChallenge(Uint8Array.from(staged.outgoing.expected.challenge), ...a.args);
@@ -138,7 +150,7 @@ window.runAccountingFixture = async config => {
     const settled = await b.session.settle({ event: incoming.event, receipt });
     await check(settled.acceptedVersion === 3, 'actual cmsg P256 Close receipt settles the recipient through the real account circuit');
     await refuses(() => a.session.settle({ event: outgoing.event, receipt }), 'recipient Close cannot accelerate the initiator fixed refund date');
-    await advance(1300);
+    await advance(config.fixtureStart + 300);
     const fresh = cmsg.BrowserMember.restore(a.unbound, a.copyKey, a.copyContext);
     const authorization = JSON.parse(a.identity.authorizeDevice(fresh.chatPublicKey(), fixtureNow, 9000));
     const admission = await window.fixtureControl('grant', { memberId: a.memberId, chatPublicKey: encode(fresh.chatPublicKey()) });
@@ -148,7 +160,7 @@ window.runAccountingFixture = async config => {
     await check(renewed.acceptedVersion === 3 && renewed.refilled === true && renewed.currentRootAccepted === true,
       'same-key delegation renewal plus a due zero-credit refill accepts the new common root');
     await refuses(() => a.session.verifyPeer(json(outgoing.proof), JSON.stringify(contexts(a).outgoing), true), 'superseded own proof cannot authorize release after a successor');
-    await advance(1700);
+    await advance(config.fixtureStart + 700);
     const expired = await a.session.maintain();
     await check(expired.slots.some(slot => slot.event === outgoing.event && slot.phase === 5), 'outgoing obligation retires only after its original common lease');
     await refuses(() => a.session.activeReservation(outgoingInput), 'retired event tombstone cannot be reused as a fresh reservation');
@@ -158,6 +170,7 @@ window.runAccountingFixture = async config => {
     await window.fixtureControl('verifyTransport', { guarded: a.guarded + b.guarded });
     return { checksComplete: true, accounts: 2, releaseScope: 'real staged admission and Close settlement; no live message or Tor claim' };
   } finally {
+    await window.fixtureStage('close fixture workers');
     for (const value of clients) {
       await value.session.close().catch(() => {});
       value.inbox.free(); value.device.free(); value.identity.free(); value.store.close();
