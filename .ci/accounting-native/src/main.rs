@@ -67,8 +67,13 @@ fn run() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
                 issuer_public_key: config.issuer_public_key,
             },
             config.now,
-        )?;
-        return Ok(serde_json::to_vec(&delegation.digest()?)?);
+        )
+        .map_err(|_| "delegation rejected")?;
+        return Ok(serde_json::to_vec(
+            &delegation
+                .digest()
+                .map_err(|_| "delegation digest rejected")?,
+        )?);
     }
     let verifier = ProcessAccountVerifier::new(ProcessVerifierConfig {
         node: config.node,
