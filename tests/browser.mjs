@@ -10,6 +10,8 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { chromium } from 'playwright';
 import { build as viteBuild } from 'vite';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   createEntryService, createEntryHandler, createSqliteState, createVoucherBridge
 } from '@corbet-labs/cvld';
@@ -35,10 +37,16 @@ voucher.signature = sign(null, Buffer.from(JSON.stringify(['cvch.issuance.v1', v
 const bridge = createVoucherBridge({ executable: resolve(process.env.CVLD_VOUCHER_EXECUTABLE), args: [],
   timeoutMs: 5_000, maxRequestBytes: 65_536, maxResponseBytes: 16_384 });
 const checks = [], pageErrors = [], externalRequests = [];
+const events = [], startedAt = Date.now();
+let currentStage = 'setup';
 let database, application, browser, page;
 
+await mkdir(artifact, { recursive: true });
 process.env.CMEET_ENTRY_OUT_DIR = entryDist;
-await viteBuild({ configFile: resolve('tests/entry-vite.config.mjs'), mode: 'test' });
+await stage('build-entry', () => viteBuild({ configFile: resolve('tests/entry-vite.config.mjs'), mode: 'test' }));
+// Retain the exact second bundle too; a production sourcemap cannot identify
+// an exception or import cycle in a separately bundled CI entry.
+await promisify(execFile)('tar', ['--create', '--file', join(artifact, 'website-entry-dist.tar'), '--directory', entryDist, '.']);
 
 function reservePort() {
   return new Promise((resolvePort, reject) => {
@@ -85,8 +93,32 @@ try {
   browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE, headless: true,
     args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   const context = await browser.newContext();
+  context.setDefaultTimeout(20_000);
+  context.setDefaultNavigationTimeout(25_000);
   page = await context.newPage();
-  page.on('pageerror', error => pageErrors.push(error.message));
+  page.on('pageerror', error => { pageErrors.push(error.message); record('page-error', { message: error.message }); });
+  page.on('crash', () => record('page-crash'));
+  page.on('close', () => record('page-closed'));
+  page.on('domcontentloaded', () => record('dom-content-loaded', { path: requestPath(page.url()) }));
+  page.on('load', () => record('page-loaded', { path: requestPath(page.url()) }));
+  page.on('request', request => record('request', { path: requestPath(request.url()), type: request.resourceType(), method: request.method() }));
+  page.on('response', response => record('response', { path: requestPath(response.url()), status: response.status() }));
+  page.on('requestfinished', request => record('request-finished', { path: requestPath(request.url()) }));
+  page.on('requestfailed', request => record('request-failed', { path: requestPath(request.url()), reason: request.failure()?.errorText }));
+  page.on('console', message => {
+    if (message.type() === 'info' && message.text().startsWith('CMEET_ENTRY_STAGE ')) {
+      record('entry-stage', { detail: message.text().slice(18, 530) });
+    } else if (message.type() === 'error') {
+      // Record the script location, never arbitrary application log arguments.
+      record('console-error', { path: requestPath(message.location().url), line: message.location().lineNumber });
+    }
+  });
+  await page.addInitScript(() => {
+    const mark = stage => console.info('CMEET_ENTRY_STAGE ' + JSON.stringify({ stage }));
+    mark('document-start');
+    document.addEventListener('readystatechange', () => mark('document-' + document.readyState));
+    document.addEventListener('securitypolicyviolation', event => mark('csp-' + event.effectiveDirective));
+  });
   await page.route('**/*', route => {
     if (route.request().url().startsWith(origin + '/')) return route.continue();
     externalRequests.push(route.request().url()); return route.abort();
@@ -96,19 +128,21 @@ try {
   await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1',
     transport: 'usb', hasResidentKey: true, hasUserVerification: true, hasPrf: true, hasHmacSecret: true,
     isUserVerified: true, automaticPresenceSimulation: true } });
-  await page.goto(origin + '/', { waitUntil: 'networkidle' });
+  await navigate('/', 'production');
 
-  const config = await page.evaluate(async () => (await fetch('/api/config')).json());
-  assert.equal(config.communityId, communityId);
-  assert.equal(config.communityName, communityName);
-  assert.equal(await page.locator('#auth-title').textContent(), 'Join with a voucher');
-  assert.equal(await page.locator('.global-error').count(), 0);
-  checks.push('built Vite website loads the trusted public config and displays the voucher eligibility gate');
+  await stage('production-gate', async () => {
+    const config = await page.evaluate(async () => (await fetch('/api/config')).json());
+    assert.equal(config.communityId, communityId);
+    assert.equal(config.communityName, communityName);
+    assert.equal(await page.locator('#auth-title').textContent(), 'Join with a voucher');
+    assert.equal(await page.locator('.global-error').count(), 0);
+    checks.push('built Vite website loads the trusted public config and displays the voucher eligibility gate');
+  });
 
   // Reuse the same origin and real entry service, changing only the served
   // CI bundle. Production has no test global or network injection switch.
-  await page.goto('about:blank');
-  await new Promise(accept => application.close(accept));
+  await stage('leave-production', () => page.goto('about:blank'));
+  await stage('stop-production-server', () => new Promise(accept => application.close(accept)));
   application = await createCmeetServer({ api, mcp, origin, distDir: entryDist,
     limits: { maxConcurrentRequests: 16, requestTimeoutMs: 30_000, maxBodyBytes: 65_536, maxAssetBytes: 70 * 1024 * 1024 },
     torGatewayOrigins: [] });
@@ -116,14 +150,16 @@ try {
     application.once('error', reject);
     application.listen(port, '127.0.0.1', accept);
   });
-  await page.goto(origin + '/entry.html', { waitUntil: 'networkidle' });
-  await page.waitForFunction(() => window.__cmeetEntryController?.getState().ready === true);
+  await navigate('/entry.html', 'entry');
+  await stage('entry-controller-ready', () => page.waitForFunction(() => window.__cmeetEntryController?.getState().ready === true));
   assert.equal(await page.locator('.global-error').count(), 0);
 
-  await page.locator('#voucher').fill(JSON.stringify(voucher));
-  await page.getByRole('button', { name: /Continue to join/ }).click();
-  await page.locator('.app-shell').waitFor({ state: 'visible', timeout: 30_000 });
-  await settled();
+  await stage('voucher-registration', async () => {
+    await page.locator('#voucher').fill(JSON.stringify(voucher));
+    await page.getByRole('button', { name: /Continue to join/ }).click();
+    await page.locator('.app-shell').waitFor({ state: 'visible', timeout: 30_000 });
+    await settled();
+  });
   const registeredAdmission = await page.evaluate(() => window.__cmeetEntryAdmissions.at(-1));
   const registeredSession = await page.evaluate(async () => {
     const response = await fetch('/auth/session');
@@ -133,12 +169,14 @@ try {
   assert.equal(typeof registeredSession.body?.memberId, 'string');
   checks.push('actual Chromium WebAuthn registration, cmsg authority, native cvch voucher verification and session issuance');
 
-  await page.getByRole('button', { name: 'Sign out' }).click();
-  await page.locator('#auth-title').waitFor({ state: 'visible', timeout: 10_000 });
-  await page.getByRole('tab', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: /Sign in with passkey/ }).click();
-  await page.locator('.app-shell').waitFor({ state: 'visible', timeout: 30_000 });
-  await settled();
+  await stage('passkey-login', async () => {
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await page.locator('#auth-title').waitFor({ state: 'visible', timeout: 10_000 });
+    await page.getByRole('tab', { name: 'Sign in' }).click();
+    await page.getByRole('button', { name: /Sign in with passkey/ }).click();
+    await page.locator('.app-shell').waitFor({ state: 'visible', timeout: 30_000 });
+    await settled();
+  });
   const renewedAdmission = await page.evaluate(() => window.__cmeetEntryAdmissions.at(-1));
   assert.equal(renewedAdmission.memberId, registeredAdmission.memberId);
   assert.deepEqual(renewedAdmission.chatPublicKey, registeredAdmission.chatPublicKey);
@@ -154,26 +192,70 @@ try {
   assert.deepEqual(pageErrors, []);
   assert.deepEqual(externalRequests, []);
   await mkdir(artifact, { recursive: true });
-  await page.screenshot({ path: join(artifact, 'website-browser.png'), fullPage: true });
+  await page.screenshot({ path: join(artifact, 'website-browser.png'), fullPage: true, timeout: 5_000 });
   const evidence = { source: process.env.CI_COMMIT_SHA, ok: true, checks, externalRequests, pageErrors,
     browserVersion: browser.version(), voucherBridgeSha256: createHash('sha256').update(await readFile(process.env.CVLD_VOUCHER_EXECUTABLE)).digest('hex'),
     authenticationController: 'real; only the member network adapter is isolated',
-    networkClaim: 'none; discovery, messaging and Tor were not exercised' };
+    networkClaim: 'none; discovery, messaging and Tor were not exercised', currentStage, events };
   await writeFile(join(artifact, 'website-browser.json'), JSON.stringify(evidence, null, 2) + '\n');
   process.stdout.write(JSON.stringify({ ok: true, checks }) + '\n');
 } catch (error) {
   await mkdir(artifact, { recursive: true });
-  await page?.screenshot({ path: join(artifact, 'website-browser-failure.png'), fullPage: true }).catch(() => {});
+  // Write evidence before calling the possibly stalled renderer again.
   await writeFile(join(artifact, 'website-browser.json'), JSON.stringify({ source: process.env.CI_COMMIT_SHA,
-    ok: false, checks, externalRequests, pageErrors, error: String(error.stack ?? error) }, null, 2) + '\n');
+    ok: false, checks, externalRequests, pageErrors, currentStage, events, error: String(error.stack ?? error) }, null, 2) + '\n');
+  await deadline(() => page?.screenshot({ path: join(artifact, 'website-browser-failure.png'), fullPage: true, timeout: 5_000 }), 6_000).catch(() => {});
   throw error;
 } finally {
-  await browser?.close();
-  if (application?.listening) await new Promise(accept => application.close(accept));
-  await mcp.close();
+  await deadline(() => browser?.close(), 5_000).catch(() => {});
+  if (application?.listening) {
+    application.closeAllConnections();
+    await deadline(() => new Promise(accept => application.close(accept)), 5_000).catch(() => {});
+  }
+  await deadline(() => mcp.close(), 5_000).catch(() => {});
   database?.close();
   await rm(work, { recursive: true, force: true });
   await rm(entryDist, { recursive: true, force: true });
+}
+
+function requestPath(value) {
+  try { return new URL(value).pathname; } catch { return ''; }
+}
+
+function record(event, detail = {}) {
+  const value = { elapsedMs: Date.now() - startedAt, stage: currentStage, event, ...detail };
+  if (events.length === 600) events.shift();
+  events.push(value);
+  if (['stage-start', 'stage-complete', 'entry-stage', 'page-error', 'request-failed'].includes(event)) {
+    process.stdout.write(JSON.stringify(value) + '\n');
+  }
+}
+
+async function deadline(operation, timeoutMs = 35_000) {
+  let timer;
+  try {
+    return await Promise.race([Promise.resolve().then(operation), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Browser contract deadline at ${currentStage}`)), timeoutMs);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
+async function stage(name, operation) {
+  currentStage = name;
+  record('stage-start');
+  await writeFile(join(artifact, 'website-browser-progress.json'), JSON.stringify({ currentStage, checks, events }, null, 2) + '\n');
+  const result = await deadline(operation);
+  record('stage-complete');
+  return result;
+}
+
+async function navigate(path, label) {
+  // Separate response arrival, module/DOM execution and idle network so a
+  // failure identifies which part of the original navigation did not finish.
+  const response = await stage(label + '-response', () => page.goto(origin + path, { waitUntil: 'commit' }));
+  assert.equal(response.status(), 200);
+  await stage(label + '-dom', () => page.waitForLoadState('domcontentloaded'));
+  await stage(label + '-network-idle', () => page.waitForLoadState('networkidle'));
 }
 
 async function settled() {
