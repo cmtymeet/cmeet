@@ -1,0 +1,22 @@
+{
+  "cfrm": {
+    "repository": "cmtymeet/cfrm",
+    "revision": "5628d2ce8fda926e50fdeced75c805ef58c2b568"
+  },
+  "cmsg": {
+    "repository": "cmtymeet/cmsg",
+    "revision": "1b098a60673411124252fd11ba78b4defef437d8"
+  },
+  "cvld": {
+    "repository": "cmtymeet/cvld",
+    "revision": "46a17c032a591b3fbc8ff67d844930997f4cd720"
+  },
+  "cvch": {
+    "repository": "cmtymeet/cvch",
+    "revision": "dff30de1a72358208e27c0416fb8e7096e64ae04"
+  },
+  "anoncreds": {
+    "repository": "hyperledger/anoncreds-rs",
+    "revision": "08317a7428afe81f7b710669dc64878f98a6447b"
+  }
+}

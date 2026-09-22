@@ -1,0 +1,63 @@
+name: Website and voucher entry contract
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      resolve_dependencies:
+        description: Resolve missing candidate npm/native Cargo locks once; preserve retained locks
+        type: boolean
+        default: false
+      cvld_source_sha:
+        description: Exact candidate cvld commit; omitted uses the reviewed source manifest
+        type: string
+        default: ''
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  website:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CI_COMMIT_SHA: ${{ github.sha }}
+      GH_TOKEN: ${{ github.token }}
+      CVLD_SOURCE_SHA: ${{ inputs.cvld_source_sha || '' }}
+      RESOLVE_DEPENDENCIES: ${{ github.event_name == 'workflow_dispatch' && inputs.resolve_dependencies && '1' || '0' }}
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.ci-work/target
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Prepare runner tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+          printf 'BROWSER_BIN=%s\n' "$(command -v google-chrome || command -v chromium)" >> "$GITHUB_ENV"
+          printf 'OPENSSL_INCLUDE_DIR=%s\n' "$(pkg-config --variable=includedir openssl)" >> "$GITHUB_ENV"
+          printf 'OPENSSL_LIB_DIR=%s\n' "$(pkg-config --variable=libdir openssl)" >> "$GITHUB_ENV"
+      - name: Build source packages and run the website contract
+        env:
+          ARTIFACT_ROOT: ${{ runner.temp }}/cmeet-evidence
+        run: bash .ci/checks.sh
+      - name: Retain package, lock and validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cmeet-${{ github.sha }}
+          path: ${{ runner.temp }}/cmeet-evidence
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

@@ -1,0 +1,31 @@
+{
+  "name": "cmeet",
+  "version": "0.1.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "start": "node server/start.mjs",
+    "test:server": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:browser": "node tests/browser.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "^4.2.0",
+    "@corbet-labs/cmsg": "file:vendor/cmsg",
+    "@corbet-labs/cvld": "file:vendor/cvld",
+    "cfrm": "file:vendor/cfrm",
+    "cfrm-browser": "file:vendor/cfrm-browser",
+    "tor-js": "file:vendor/tor-js"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "latest",
+    "playwright": "latest",
+    "svelte": "^5.0.0",
+    "vite": "latest",
+    "vite-plugin-node-polyfills": "0.28.0"
+  }
+}
