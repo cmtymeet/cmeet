@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +54,7 @@ const evidence = { source: process.env.CI_COMMIT_SHA, runtimeManifestSha256: man
 let clock = fixtureStart, loseNextMember, applyCount = 0, genesisCount = 0, conversationStart;
 let enrollment, enrollmentStore, hashRuntime, browser, server, queue = Promise.resolve();
 const applied = new Map(), currentEntries = new Map(), pageErrors = [];
+evidence.assetRequests = [];
 async function writeConfig() { await writeFile(configPath, JSON.stringify({ ...config, now: clock }), { mode: 0o600 }); }
 function native(operation, input) {
   return new Promise((accept, reject) => {
@@ -114,6 +115,9 @@ try {
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' blob:");
     try {
       const path = new URL(request.url, 'http://localhost').pathname;
+      if (request.method === 'GET' && evidence.assetRequests.length < 256) {
+        evidence.assetRequests.push({ path, elapsedMs: Math.round(performance.now()) });
+      }
       if (request.method === 'POST' && ['/v1/account', '/v1/account/enrollment'].includes(path)) {
         const chunks = []; let bytes = 0;
         for await (const chunk of request) { bytes += chunk.length; if (bytes > 4_194_304) throw new Error('Public body bound'); chunks.push(chunk); }
@@ -216,7 +220,6 @@ try {
   evidence.result = await page.evaluate(config => window.runAccountingFixture(config), configPublic);
   assert.deepEqual(pageErrors, []);
   evidence.browser = browser.version(); evidence.ok = true;
-  await copyFile(join(dist, '.ci/accounting-fixture/index.html'), join(artifacts, 'fixture-index.html'));
 } catch (error) { evidence.error = String(error.stack ?? error); process.exitCode = 1; }
 finally {
   await browser?.close();
@@ -224,6 +227,10 @@ finally {
   await queue; enrollment?.close(); await hashRuntime?.destroy(); enrollmentStore?.close();
   evidence.pageErrors = pageErrors;
   await writeFile(join(artifacts, 'accounting-browser.json'), JSON.stringify(evidence, null, 2) + '\n');
+  // Public generated code only. Keep the failed Worker bundle reviewable; no
+  // fixture keys, database, proof witnesses or private configuration are copied.
+  try { await cp(dist, join(artifacts, 'fixture-dist'), { recursive: true }); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
   await rm(work, { recursive: true, force: true });
 }
 process.stdout.write(JSON.stringify({ ok: evidence.ok, checks: evidence.checks.length }) + '\n');

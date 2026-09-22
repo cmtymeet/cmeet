@@ -15,6 +15,7 @@ globalThis.Worker = class extends NativeWorker {
   constructor(url, options) {
     const bootstrap = `let now = ${fixtureNow}, ready = false; const pending = [];
       Date.now = () => now * 1000;
+      postMessage({ kind: 'fixtureBootstrap', phase: 'import-start' });
       addEventListener('message', event => {
         if (event.data?.kind === 'fixtureClock') {
           now = event.data.now; event.stopImmediatePropagation();
@@ -24,10 +25,17 @@ globalThis.Worker = class extends NativeWorker {
       });
       await import(${JSON.stringify(new URL(url, location.href).href)});
       ready = true;
+      postMessage({ kind: 'fixtureBootstrap', phase: 'import-complete' });
       for (const data of pending) dispatchEvent(new MessageEvent('message', { data }));`;
     const objectUrl = URL.createObjectURL(new Blob([bootstrap], { type: 'text/javascript' }));
     super(objectUrl, { ...options, type: 'module' });
-    this.addEventListener('message', ({ data }) => {
+    this.addEventListener('message', event => {
+      const { data } = event;
+      if (data?.kind === 'fixtureBootstrap') {
+        event.stopImmediatePropagation();
+        if (['import-start', 'import-complete'].includes(data.phase)) window.fixtureStage(`worker bootstrap ${data.phase}`).catch(() => {});
+        return;
+      }
       if (data?.kind === 'rpc' && ['loadMaterial', 'saveMaterial', 'loadJournal', 'saveJournal', 'account', 'enrollment'].includes(data.method)) {
         window.fixtureStage(`worker RPC ${data.method}`).catch(() => {});
       } else if (data?.kind === 'result') window.fixtureStage(`worker result ${data.ok === true ? 'accepted' : 'rejected'}`).catch(() => {});

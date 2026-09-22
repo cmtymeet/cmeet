@@ -24,7 +24,12 @@ for (const file of ['cmeet-accounting-contract', 'accounting-native-Cargo.lock',
   assert.equal(createHash('sha256').update(await readFile(join(prior, file))).digest('hex'), digests.get(file));
 }
 command('git', ['fetch', '--no-tags', '--depth=1', 'origin', run.headSha]);
-const tree = revision => command('git', ['rev-parse', `${revision}:.ci/accounting-native`]);
+// A resolving run can produce the lock that is committed by its successor.
+// Compare every other source blob, then independently require exact equality
+// with the resolved lock that actually compiled the retained binary below.
+const tree = revision => createHash('sha256').update(command('git', ['ls-tree', '-r', revision,
+  '--', '.ci/accounting-native']).split('\n')
+  .filter(line => !line.endsWith('\t.ci/accounting-native/Cargo.lock')).join('\n')).digest('hex');
 assert.equal(tree(run.headSha), tree('HEAD'), 'Native fixture source/dependency closure changed');
 assert.deepEqual(await readFile('.ci/accounting-native/Cargo.lock'), await readFile(join(prior, 'accounting-native-Cargo.lock')));
 assert.equal(command('rustc', ['--version']), (await readFile(join(prior, 'rust-version.txt'), 'utf8')).trim());
