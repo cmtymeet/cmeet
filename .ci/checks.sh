@@ -2,6 +2,7 @@
 set -euo pipefail
 test "${CI:-}" = true
 test -n "${ARTIFACT_ROOT:-}"
+case "${CHECK_SCOPE:-all}" in all|browser|server) ;; *) exit 2 ;; esac
 mkdir -p "$ARTIFACT_ROOT"
 capture() {
   local status=$?
@@ -52,7 +53,14 @@ JS
 test -x "$ARTIFACT_ROOT/native/cvld-voucher-bridge"
 export CVLD_VOUCHER_EXECUTABLE="$ARTIFACT_ROOT/native/cvld-voucher-bridge"
 export PLAYWRIGHT_CHROMIUM_EXECUTABLE="${BROWSER_BIN:?Browser executable required}"
-timeout --kill-after=15 180 npm run build 2>&1 | tee "$ARTIFACT_ROOT/build.log"
-tar --create --file "$ARTIFACT_ROOT/cmeet-dist.tar" dist
-timeout --kill-after=15 120 npm run test:server 2>&1 | tee "$ARTIFACT_ROOT/server-tests.log"
-timeout --kill-after=15 300 npm run test:browser 2>&1 | tee "$ARTIFACT_ROOT/browser.log"
+printf '%s\n' "${CHECK_SCOPE:-all}" > "$ARTIFACT_ROOT/check-scope.txt"
+if test "${CHECK_SCOPE:-all}" != server; then
+  timeout --kill-after=15 180 npm run build 2>&1 | tee "$ARTIFACT_ROOT/build.log"
+  tar --create --file "$ARTIFACT_ROOT/cmeet-dist.tar" dist
+fi
+if test "${CHECK_SCOPE:-all}" != browser; then
+  timeout --kill-after=15 120 npm run test:server 2>&1 | tee "$ARTIFACT_ROOT/server-tests.log"
+fi
+if test "${CHECK_SCOPE:-all}" != server; then
+  timeout --kill-after=15 300 npm run test:browser 2>&1 | tee "$ARTIFACT_ROOT/browser.log"
+fi

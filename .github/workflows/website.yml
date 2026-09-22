@@ -5,6 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      check_scope:
+        description: Select affected website contracts
+        type: choice
+        default: all
+        options: [all, browser, server]
       resolve_dependencies:
         description: Resolve missing candidate npm/native Cargo locks once; preserve retained locks
         type: boolean
@@ -32,6 +37,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
+      CHECK_SCOPE: ${{ inputs.check_scope || 'all' }}
       CI_COMMIT_SHA: ${{ github.sha }}
       GH_TOKEN: ${{ github.token }}
       CVLD_SOURCE_SHA: ${{ inputs.cvld_source_sha || '' }}
