@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-cfrm = { git = "https://github.com/cmtymeet/cfrm.git", rev = "f1797c80f05cf469af55ea169290e48630181d20", default-features = false, features = ["sqlite"] }
+cfrm = { git = "https://github.com/cmtymeet/cfrm.git", rev = "0b30bad617dae921a77fe1a00799ee028f405443", default-features = false, features = ["sqlite"] }
 cmsg = { git = "https://github.com/cmtymeet/cmsg.git", rev = "7855f4b2561d28bd33d18a979b4d4ddea9a3aa19", default-features = false }
 ed25519-dalek = "2.2"
 serde = { version = "1.0", features = ["derive"] }

@@ -127,6 +127,7 @@ function enrollmentBoundary() {
     async enroll(value) { calls.push(['enroll', structuredClone(value)]); return { memberId: value.admission.memberId }; },
     async publishCheckpoint() { calls.push(['publish']); return { version: 1, slot: 3 }; },
     async current() { calls.push(['current']); return { version: 1, slot: 3 }; },
+    async checkpoint(slot) { calls.push(['checkpoint', slot]); return slot === 2 ? { version: 1, slot } : null; },
   };
   const authenticate = async (request, scope) => {
     scopes.push(scope);
@@ -160,6 +161,25 @@ test('enrollment HTTP boundary binds delegated member and separates enroll/curre
   assert.equal((await fixture.api.handle(fixture.post('/v1/account', { action: 'enroll', delegation }))).status, 404);
 });
 
+test('historical enrollment reads require account scope and accept only a common slot', async () => {
+  const fixture = enrollmentBoundary();
+  const route = '/v1/account/enrollment';
+  assert.equal((await fixture.api.handle(fixture.post(route, { action: 'checkpoint', slot: 2 }, 'invalid'))).status, 401);
+  for (const body of [{ action: 'checkpoint', slot: -1 }, { action: 'checkpoint', slot: 2.5 },
+    { action: 'checkpoint', slot: '2' }, { action: 'checkpoint', slot: 2, memberId: 'other' },
+    { action: 'checkpoint', slot: 2, root: [1] }]) {
+    assert.equal((await fixture.api.handle(fixture.post(route, body))).status, 403);
+  }
+  assert.deepEqual(fixture.calls, []);
+  const accepted = await fixture.api.handle(fixture.post(route, { action: 'checkpoint', slot: 2 }));
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(await accepted.json(), { action: 'checkpoint', slot: 2, publication: { version: 1, slot: 2 } });
+  const missing = await fixture.api.handle(fixture.post(route, { action: 'checkpoint', slot: 1 }));
+  assert.deepEqual(await missing.json(), { action: 'checkpoint', slot: 1, publication: null });
+  assert.deepEqual(fixture.calls, [['checkpoint', 2], ['checkpoint', 1]]);
+  assert.ok(fixture.scopes.every(scope => scope === 'account:read'));
+});
+
 test('MCP enrollment uses the same operation scopes and member binding', async () => {
   const fixture = enrollmentBoundary();
   const mcp = createCommunityMcp({ api: fixture.api, maxBodyBytes: 4_096 });
@@ -181,12 +201,17 @@ test('MCP enrollment uses the same operation scopes and member binding', async (
     assert.equal(result.status, 200);
     assert.equal(result.body.result.isError ?? false, false);
     assert.ok(fixture.scopes.includes('account:read'));
+    const checkpoint = await rpc('account_checkpoint', { action: 'checkpoint', slot: 2 });
+    assert.equal(checkpoint.status, 200);
+    assert.equal(checkpoint.body.result.isError ?? false, false);
+    const malformed = await rpc('account_checkpoint', { action: 'checkpoint', slot: 2, memberId: 'other' });
+    assert.equal(malformed.body.result.isError, true);
     const denied = await rpc('account_enroll', { action: 'enroll', delegation: {
       admission: { memberId: 'other', communityId },
     } });
     assert.equal(denied.status, 200);
     assert.equal(denied.body.result.isError, true);
-    assert.deepEqual(fixture.calls.map(([name]) => name), ['current']);
+    assert.deepEqual(fixture.calls.map(([name]) => name), ['current', 'checkpoint']);
   } finally {
     await mcp.close();
   }

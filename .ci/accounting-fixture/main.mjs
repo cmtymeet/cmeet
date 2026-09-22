@@ -279,15 +279,25 @@ window.runAccountingFixture = async config => {
     const settled = await b.session.settle({ event: incoming.event, receipt });
     await check(settled.acceptedVersion === 3, 'actual cmsg P256 Close receipt settles the recipient through the real account circuit');
     await refuses(() => a.session.settle({ event: outgoing.event, receipt }), 'recipient Close cannot accelerate the initiator fixed refund date');
-    await advance(config.fixtureStart + 300);
+    await advance(config.fixtureStart + 200);
     const fresh = cmsg.BrowserMember.restore(a.unbound, a.copyKey, a.copyContext);
     const authorization = JSON.parse(a.identity.authorizeDevice(fresh.chatPublicKey(), fixtureNow, 9000));
     const admission = await window.fixtureControl('grant', { memberId: a.memberId, chatPublicKey: encode(fresh.chatPublicKey()) });
     fresh.bindDeviceAdmission(JSON.stringify(admission), JSON.stringify(config.admissionTrust), JSON.stringify(authorization));
     const renewed = await a.session.renew({ device: fresh, authority: { admission, authorization } });
     a.device.free(); a.device = fresh; a.authority = { admission, authorization };
-    await check(renewed.acceptedVersion === 3 && renewed.refilled === true && renewed.currentRootAccepted === true,
-      'same-key delegation renewal plus a due zero-credit refill accepts the new common root');
+    await check(renewed.acceptedVersion === 2 && renewed.refilled === false && renewed.currentRootAccepted === false,
+      'same-key renewal changes the roster without fabricating a refill or accepted account transition');
+    const historicalInput = { ...outgoingInput, context: contexts(a).outgoing };
+    const historicalReservation = await stage('prove Active reservation before a refill is due', () => a.session.activeReservation(historicalInput));
+    await stage('verify historical acceptance with current member authority', () =>
+      a.session.verifyPeer(json(historicalReservation.proof), JSON.stringify(historicalInput.context), true));
+    await check(historicalReservation.event === outgoing.event && historicalReservation.acceptedVersion === 2,
+      'independently verified historical checkpoint preserves the original Active reservation at no extra cost');
+    await advance(config.fixtureStart + 300);
+    const due = await a.session.maintain();
+    await check(due.acceptedVersion === 3 && due.refilled === true && due.currentRootAccepted === true,
+      'a later due refill accepts the current common root through a real transition');
     await refuses(() => a.session.verifyPeer(json(outgoing.proof), JSON.stringify(contexts(a).outgoing), true), 'superseded own proof cannot authorize release after a successor');
     const renewedInput = { ...outgoingInput, context: contexts(a).outgoing };
     const renewedReservation = await stage('prove existing Active reservation after delegation renewal', () => a.session.activeReservation(renewedInput));

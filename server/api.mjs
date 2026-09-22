@@ -11,6 +11,7 @@ export const OPERATIONS = Object.freeze({
   presence_lookup: { scope: 'discovery:read', path: '/v1/presence/lookup', backend: 'presenceLookup', readOnly: true },
   account_enroll: { scope: 'account:write', path: '/v1/account/enrollment', backend: 'enrollment', kind: 'enroll', readOnly: false },
   account_enrollment: { scope: 'account:read', path: '/v1/account/enrollment', backend: 'enrollment', kind: 'current', readOnly: true },
+  account_checkpoint: { scope: 'account:read', path: '/v1/account/enrollment', backend: 'enrollment', kind: 'checkpoint', readOnly: true },
   profile_key_ticket: { scope: 'profiles:read', path: '/v1/profile-keys/issue', backend: 'keyIssue', readOnly: false },
   account_status: { scope: 'account:read', path: '/v1/account/status', backend: 'account', kind: 'status', readOnly: true },
   account_apply: { scope: 'account:write', path: '/v1/account/apply', backend: 'account', kind: 'apply', readOnly: false },
@@ -51,7 +52,8 @@ export function createApi({ entryHandler, authenticate, backend, publicConfig, m
   if (typeof entryHandler !== 'function' || typeof authenticate !== 'function' || typeof backend?.call !== 'function'
       || !Number.isSafeInteger(maxBodyBytes) || maxBodyBytes <= 0) throw new TypeError('Complete API composition required');
   if (enrollment !== undefined && (!enrollment || typeof enrollment.enroll !== 'function'
-      || typeof enrollment.publishCheckpoint !== 'function' || typeof enrollment.current !== 'function')) {
+      || typeof enrollment.publishCheckpoint !== 'function' || typeof enrollment.current !== 'function'
+      || typeof enrollment.checkpoint !== 'function')) {
     throw new TypeError('Enrollment service is incomplete');
   }
   // publicConfig is an explicit public-only object built by the trusted startup
@@ -90,6 +92,9 @@ export function createApi({ entryHandler, authenticate, backend, publicConfig, m
         if (!exact(snapshot, ['action', 'delegation']) || snapshot.action !== 'enroll'
             || snapshot.delegation?.admission?.memberId !== principal.memberId
             || snapshot.delegation?.admission?.communityId !== publicConfig.communityId) throw new RequestRejected();
+      } else if (operation.kind === 'checkpoint') {
+        if (!exact(snapshot, ['action', 'slot']) || snapshot.action !== 'checkpoint'
+            || !Number.isSafeInteger(snapshot.slot) || snapshot.slot < 0) throw new RequestRejected();
       } else if (!exact(snapshot, ['action']) || snapshot.action !== 'current') {
         throw new RequestRejected();
       }
@@ -104,6 +109,7 @@ export function createApi({ entryHandler, authenticate, backend, publicConfig, m
         await enrollment.enroll(snapshot.delegation);
         return { action: 'enroll', publication: await enrollment.publishCheckpoint() };
       }
+      if (operation.kind === 'checkpoint') return { action: 'checkpoint', slot: snapshot.slot, publication: await enrollment.checkpoint(snapshot.slot) };
       return { action: 'current', publication: await enrollment.current() };
     }
     return backend.call(operation.backend, snapshot, { principal: { kind: 'member', memberId: principal.memberId } });
@@ -123,7 +129,7 @@ export function createApi({ entryHandler, authenticate, backend, publicConfig, m
         let name;
         if (path === '/v1/discovery') name = Object.keys(OPERATIONS).find(key => OPERATIONS[key].backend === 'discovery' && OPERATIONS[key].kind === body?.operation?.kind);
         else if (path === '/v1/account') name = Object.keys(OPERATIONS).find(key => OPERATIONS[key].backend === 'account' && OPERATIONS[key].kind === body?.action);
-        else if (path === '/v1/account/enrollment') name = body?.action === 'enroll' ? 'account_enroll' : body?.action === 'current' ? 'account_enrollment' : undefined;
+        else if (path === '/v1/account/enrollment') name = Object.keys(OPERATIONS).find(key => OPERATIONS[key].backend === 'enrollment' && OPERATIONS[key].kind === body?.action);
         else name = Object.keys(OPERATIONS).find(key => OPERATIONS[key].path === path);
         return json(200, await invoke(name, body, request));
       } catch (error) { return json(error instanceof RequestRejected ? error.status : 403, { error: 'Request rejected' }); }

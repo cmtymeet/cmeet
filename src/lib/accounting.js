@@ -41,8 +41,10 @@ export async function createAccountingSession({ api, store, wallet, device, auth
       return api.request('/v1/account', { method: 'POST', body: input });
     }
     if (method === 'enrollment') {
-      exact(input, input?.action === 'enroll' ? ['action', 'delegation'] : ['action']);
-      if (!['enroll', 'current'].includes(input.action)) throw new Error('Enrollment RPC action');
+      exact(input, input?.action === 'enroll' ? ['action', 'delegation']
+        : input?.action === 'checkpoint' ? ['action', 'slot'] : ['action']);
+      if (!['enroll', 'current', 'checkpoint'].includes(input.action)
+          || (input.action === 'checkpoint' && (!Number.isSafeInteger(input.slot) || input.slot < 0))) throw new Error('Enrollment RPC action');
       return api.request('/v1/account/enrollment', { method: 'POST', body: input });
     }
     if (method === 'loadJournal') {

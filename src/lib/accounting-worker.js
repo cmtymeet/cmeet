@@ -2,7 +2,7 @@ import * as cmsg from '@corbet-labs/cmsg';
 import cmsgWasmUrl from '@corbet-labs/cmsg/wasm-binary?url';
 import { sealLocalState, openLocalState } from '@corbet-labs/cvld/client';
 import { createAccountProver, createAccountActor, createEnrollmentClient, artifactFetcher,
-  statePolicyDigest, validityHorizon } from 'cfrm/accounting';
+  statePolicyDigest, validityHorizon, verifyAccountAcceptance } from 'cfrm/accounting';
 import { encode, decode, utf8, decoder, exact, positive } from './encoding.js';
 
 const pending = new Map();
@@ -173,6 +173,26 @@ function requireCurrentEnrollment() {
   if (!verified || verified.status !== 'eligible' || at < verified.publication.notBefore
       || at >= verified.publication.expiresAt) throw new Error('Current common enrollment required');
 }
+async function rosterAt(at, expectedRoot) {
+  if (!Number.isSafeInteger(at) || at < 0 || at > now()) throw new Error('Historical checkpoint time');
+  const slot = Math.floor(at / settings.checkpointPeriodSeconds);
+  if (verified.publication.slot === slot) {
+    if (expectedRoot && !equal(expectedRoot, verified.publication.root)) throw new Error('Historical checkpoint root');
+    return verified;
+  }
+  const historical = await enrollmentClient.historical({ slot, at,
+    ...(expectedRoot ? { expectedRoot: Uint8Array.from(expectedRoot) } : {}) });
+  if (historical?.status !== 'historical' || !historical.acceptanceCheckpoint) throw new Error('Trusted checkpoint unavailable');
+  return historical;
+}
+function historicalOwner(roster, current) {
+  const index = roster.entries.findIndex(entry => entry.memberId === current.memberId);
+  const previous = roster.entries[index];
+  if (!previous || previous.accountKey !== current.accountKey || previous.secretHash !== current.secretHash) {
+    throw new Error('Historical account identity differs');
+  }
+  return roster.checkpoint.entries[index];
+}
 async function peerContext(nativeInput, acceptance, event = null) {
   requireCurrentEnrollment();
   const native = typeof nativeInput === 'string' ? JSON.parse(nativeInput) : structuredClone(nativeInput);
@@ -204,15 +224,30 @@ async function peerContext(nativeInput, acceptance, event = null) {
       || !equal(decode(delegation.authorization.devicePublicKey, 32), native.devicePublicKey)
       || delegation.accountPublicKey !== verified.entries[index].accountKey) throw new Error('Peer device differs from enrolled authority');
   // A recipient verifies the offered outgoing proof before consenting to any
-  // local reservation. Only that initial peer path uses the current roster.
+  // local reservation. That initial peer path resolves the original roster.
   // Once a local slot exists, both directions retain their original authority.
   const retainedAuthority = retained ? (ownerIsLocal ? retained.ownerAuthority : retained.peerAuthority)
-    : Array.from(field(verified.checkpoint.entries[index].leaf));
+    : Array.from(field(historicalOwner(await rosterAt(expected.openedAt), verified.entries[index]).leaf));
   if (!Array.isArray(retainedAuthority) || retainedAuthority.length !== 32) throw new Error('Peer reservation authority');
+  let acceptanceCheckpoint;
+  if (!equal(acceptance.statement.enrollmentRoot, verified.publication.root)) {
+    // A retained acceptance certifies its original common checkpoint. Resolve
+    // that checkpoint through authenticated common history; the peer's claimed
+    // root is never sufficient, and present-day member authority above remains
+    // mandatory. No account transition or capacity grant is invented here.
+    await verifyAccountAcceptance(acceptance, decode(settings.operatorPublicKey, 32));
+    const at = acceptance.statement.now;
+    if (!Number.isSafeInteger(at) || at < 0 || at > now() || acceptance.acceptedAt > now()) throw new Error('Acceptance checkpoint time');
+    const historical = await rosterAt(at, acceptance.statement.enrollmentRoot);
+    historicalOwner(historical, verified.entries[index]);
+    if (!historical.acceptanceCheckpoint) throw new Error('Trusted acceptance checkpoint unavailable');
+    acceptanceCheckpoint = historical.acceptanceCheckpoint;
+  }
   return { now: native.now, expected: { ...expected,
     ownerAuthority: retainedAuthority, statePolicyDigest: Array.from(stateDigest),
     stateVersion: acceptance.statement.nextVersion, stateCommitment: acceptance.statement.nextState },
     accountPolicy: settings.policy, enrollmentRoot: verified.publication.root,
+    ...(acceptanceCheckpoint ? { acceptanceCheckpoint } : {}),
     authorityExpiresAt: Math.min(delegation.expiresAt, delegation.admission.expiresAt, delegation.authorization.expiresAt,
       verified.publication.expiresAt) };
 }

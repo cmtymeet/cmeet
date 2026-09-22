@@ -47,6 +47,7 @@ export async function composeEnrollment({ config, account, trust, backend, opera
     enroll: value => call('enroll', value),
     publishCheckpoint: () => call('publishCheckpoint'),
     current: () => call('current'),
+    checkpoint: slot => call('checkpoint', slot),
     close() {
       if (closing) return closing;
       closed = true;
