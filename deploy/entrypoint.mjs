@@ -102,13 +102,15 @@ async function main() {
   await copyBundle(source, outputRoot);
   await chmod(outputRoot, 0o700);
   const config = await readJson(configPath, 'cmeet.json');
-  const native = await readJson(nativeConfigPath, 'native.json');
-  exactPath(config?.backend?.binaryPath, '/app/bin/cmeet-cfrm-backend', 'backend binary path');
-  exactPath(config?.backend?.configPath, nativeConfigPath, 'backend config path');
-  exactPath(config?.voucherBridge?.executable, '/app/bin/cvld-voucher-bridge', 'voucher bridge path');
   exactPath(config?.http?.distDir, '/app/dist', 'static asset path');
-  assert(native?.storage?.driver === 'turso', 'native durable storage must be Turso');
-  assert(config?.storage?.driver === 'turso', 'website durable storage must be Turso');
+  if (config.serviceMode !== 'setup') {
+    const native = await readJson(nativeConfigPath, 'native.json');
+    exactPath(config?.backend?.binaryPath, '/app/bin/cmeet-cfrm-backend', 'backend binary path');
+    exactPath(config?.backend?.configPath, nativeConfigPath, 'backend config path');
+    exactPath(config?.voucherBridge?.executable, '/app/bin/cvld-voucher-bridge', 'voucher bridge path');
+    assert(native?.storage?.driver === 'turso', 'native durable storage must be Turso');
+    assert(config?.storage?.driver === 'turso', 'website durable storage must be Turso');
+  }
 
   const identity = await nodeIdentity();
   if (process.getuid?.() === 0) {

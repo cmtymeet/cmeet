@@ -100,6 +100,7 @@ async function readBoundedJson(response, maxBytes = 64 * 1024) {
 
 function publicState(config) {
   return {
+    auth: 'loading',
     ready: false,
     authenticated: false,
     member: null,
@@ -119,7 +120,7 @@ function publicState(config) {
 function assertConfig(config) {
   if (!config || typeof config !== 'object') throw new TypeError('Trusted community configuration is required');
   if (typeof config.communityId !== 'string' || config.communityId.length < 1 || config.communityId.length > 256) throw new TypeError('Trusted community ID is required');
-  if (typeof config.communityName !== 'string' || config.communityName.length < 1 || config.communityName.length > 120) throw new TypeError('Trusted community name is required');
+  if (typeof config.communityName !== 'string' || !config.communityName.trim() || config.communityName.length > 120) throw new TypeError('Trusted community name is required');
   for (const key of ['storageName', 'identityContext', 'profileContext']) if (typeof config[key] !== 'string' || config[key].length < 1 || config[key].length > 256) throw new TypeError(`Trusted ${key} is required`);
   return config;
 }
@@ -325,6 +326,7 @@ export function createAppController(options = {}) {
   let storedRecord = null;
   let storageLoaded = false;
   let network = null;
+  let setupRequired = false;
   let modulePromise;
   let cvldPromise;
 
@@ -357,6 +359,7 @@ export function createAppController(options = {}) {
   }
 
   async function ensureConfig() {
+    if (setupRequired) return null;
     if (typeof config.communityId !== 'string' || config.communityId.length === 0) {
       let loaded;
       if (typeof options.loadConfig === 'function') loaded = await options.loadConfig();
@@ -368,6 +371,15 @@ export function createAppController(options = {}) {
         loaded = await readBoundedJson(response);
       }
       if (!loaded) throw new Error('Trusted community configuration is required');
+      if (loaded.status === 'setup-required') {
+        if (typeof loaded.communityName !== 'string' || !loaded.communityName.trim() || loaded.communityName.length > 120) {
+          throw new Error('Trusted community configuration is invalid');
+        }
+        setupRequired = true;
+        config = { ...config, communityName: loaded.communityName };
+        update({ auth: 'setup-required', ready: true, busy: false, authenticated: false, config: { communityName: loaded.communityName }, error: '' });
+        return null;
+      }
       config = { ...config, ...(loaded ?? {}) };
     }
     config = assertConfig(config);
@@ -524,7 +536,7 @@ export function createAppController(options = {}) {
     if (!session.authority?.admission || !session.authority?.authorization) throw new Error('Current device authority is unavailable');
     privateSession = session;
     if (!alreadyPersisted) await persistPrivateSession(privateSession);
-    update({ ready: true, authenticated: true, member: clonePublic(member), profile: clonePublic(result.profile ?? privateSession.profile ?? { displayName: '', bio: '' }), error: '' });
+    update({ auth: 'authenticated', ready: true, authenticated: true, member: clonePublic(member), profile: clonePublic(result.profile ?? privateSession.profile ?? { displayName: '', bio: '' }), error: '' });
     await startNetwork(privateSession);
     update({ busy: false });
     return clonePublic(state);
@@ -534,13 +546,14 @@ export function createAppController(options = {}) {
     setBusy(true);
     try {
       await ensureConfig();
+      if (setupRequired) return clonePublic(state);
       storedRecord = await storage.get('session');
       storageLoaded = true;
       if (typeof auth?.session === 'function') {
         const session = await auth.session();
         update({ member: clonePublic(session?.member ?? session ?? null) });
       }
-      update({ ready: true, busy: false });
+      update({ auth: 'signed-out', ready: true, busy: false });
       return clonePublic(state);
     } catch (error) {
       update({ ready: true, busy: false, error: safeError(error) });
@@ -550,6 +563,7 @@ export function createAppController(options = {}) {
 
   async function register(voucher) {
     await ensureConfig();
+    if (setupRequired) throw new Error('Community setup is incomplete');
     if (!storageLoaded) { storedRecord = await storage.get('session'); storageLoaded = true; }
     if (!auth || typeof auth.register !== 'function') throw new Error('Admission adapter is not configured');
     if (typeof voucher !== 'string' || voucher.trim().length === 0) throw new Error('Voucher is required');
@@ -582,6 +596,7 @@ export function createAppController(options = {}) {
 
   async function login() {
     await ensureConfig();
+    if (setupRequired) throw new Error('Community setup is incomplete');
     if (!storageLoaded) { storedRecord = await storage.get('session'); storageLoaded = true; }
     if (!auth || typeof auth.login !== 'function') throw new Error('Authentication adapter is not configured');
     setBusy(true);
@@ -646,7 +661,7 @@ export function createAppController(options = {}) {
       freeCmsg(session?.inbox);
       freeCmsg(session?.identity);
       privateSession = null;
-      update({ authenticated: false, member: null, profile: { displayName: '', bio: '' }, entries: [], conversations: [], activeConversation: null, messages: [], busy: false, connectivity: { online: false, status: 'offline' }, accounting: { status: 'unknown', accepted: null, eligibleAt: null }, error: logoutError });
+      update({ auth: 'signed-out', authenticated: false, member: null, profile: { displayName: '', bio: '' }, entries: [], conversations: [], activeConversation: null, messages: [], busy: false, connectivity: { online: false, status: 'offline' }, accounting: { status: 'unknown', accepted: null, eligibleAt: null }, error: logoutError });
     }
   }
 

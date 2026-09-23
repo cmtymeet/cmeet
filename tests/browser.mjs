@@ -128,6 +128,83 @@ try {
   await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1',
     transport: 'usb', hasResidentKey: true, hasUserVerification: true, hasPrf: true, hasHmacSecret: true,
     isUserVerified: true, automaticPresenceSimulation: true } });
+
+  // Exercise the real production bundle while the service is explicitly in
+  // setup mode. This must complete before the normal community service is
+  // started again, so an auth request or native asset load cannot be hidden
+  // by an already-authenticated page.
+  await stage('stop-community-for-setup', () => new Promise(accept => {
+    application.closeAllConnections();
+    application.close(accept);
+  }));
+  const setupCommunityName = 'Website Setup Fixture';
+  const setupPublicConfig = {
+    status: 'setup-required',
+    communityName: setupCommunityName,
+    domains: {
+      baseDomain: 'example.test',
+      community: { origin: 'https://example.test', apiOrigin: 'https://api.example.test', mcpOrigin: 'https://mcp.example.test' },
+      admin: { origin: 'https://admin.example.test', apiOrigin: 'https://api.admin.example.test' },
+      root: { origin: 'https://root.example.test', apiOrigin: 'https://api.root.example.test' },
+    },
+  };
+  const setupBody = JSON.stringify(setupPublicConfig);
+  const setupUnavailable = () => new Response(JSON.stringify({ error: 'setup_required' }), {
+    status: 503, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+  });
+  const setupApi = {
+    async handle(request) {
+      const url = new URL(request.url);
+      if (url.pathname === '/api/config' && request.method === 'GET') {
+        return new Response(setupBody, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
+      }
+      return setupUnavailable();
+    },
+  };
+  const setupMcp = { handle: async () => setupUnavailable() };
+  application = await createCmeetServer({ api: setupApi, mcp: setupMcp, origin, distDir: dist,
+    limits: { maxConcurrentRequests: 16, requestTimeoutMs: 30_000, maxBodyBytes: 65_536, maxAssetBytes: 70 * 1024 * 1024 },
+    torGatewayOrigins: [] });
+  await new Promise((accept, reject) => {
+    application.once('error', reject);
+    application.listen(port, '127.0.0.1', accept);
+  });
+  const setupEventStart = events.length;
+  const setupExternalStart = externalRequests.length;
+  const setupPageErrorStart = pageErrors.length;
+  await navigate('/', 'setup');
+  await stage('setup-state', async () => {
+    const config = await page.evaluate(async () => {
+      const response = await fetch('/api/config');
+      return { status: response.status, body: await response.json() };
+    });
+    assert.equal(config.status, 200);
+    assert.deepEqual(config.body, setupPublicConfig);
+    assert.equal(await page.locator('#setup-title').textContent(), setupCommunityName);
+    assert.equal(await page.getByText('This community is being set up.', { exact: true }).count(), 1);
+    assert.equal(await page.locator('#voucher').count(), 0);
+    assert.equal(await page.getByRole('button', { name: /join|sign in|passkey/i }).count(), 0);
+    assert.equal(await page.getByText(/passkey/i).count(), 0);
+    const setupPaths = events.slice(setupEventStart).filter(event => event.event === 'request').map(event => event.path);
+    assert(setupPaths.includes('/api/config'));
+    assert.deepEqual(setupPaths.filter(path => /^(?:\/(?:auth|credential|v1|mcp))(?:\/|$)/.test(path) || /(?:\.wasm$|worker)/i.test(path)), []);
+    assert.equal(externalRequests.length, setupExternalStart);
+    assert.equal(pageErrors.length, setupPageErrorStart);
+    checks.push('real built UI renders setup-required state without auth, external, worker or native asset startup');
+  });
+
+  await stage('leave-setup', () => page.goto('about:blank'));
+  await stage('stop-setup-server', () => new Promise(accept => {
+    application.closeAllConnections();
+    application.close(accept);
+  }));
+  application = await createCmeetServer({ api, mcp, origin, distDir: dist,
+    limits: { maxConcurrentRequests: 16, requestTimeoutMs: 30_000, maxBodyBytes: 65_536, maxAssetBytes: 70 * 1024 * 1024 },
+    torGatewayOrigins: [] });
+  await new Promise((accept, reject) => {
+    application.once('error', reject);
+    application.listen(port, '127.0.0.1', accept);
+  });
   await navigate('/', 'production');
 
   await stage('production-gate', async () => {

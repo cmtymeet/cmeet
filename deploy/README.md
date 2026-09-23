@@ -133,9 +133,16 @@ node /app/server/start.mjs --config /run/cmeet/cmeet.json
 
 The bundle is trusted operator configuration. It must set the website origin,
 RP ID, Turso and Valkey endpoints, bounded capacities, native paths, and
-community trust values explicitly. No `cmtytest.corbet.ch` value or secret is
-included here.
+community trust values explicitly. Live domain values and secrets are configured only at deployment.
 
 The image does not provide a Tor daemon or a TorJS gateway. Those remain
 separate runtime infrastructure dependencies; the cmeet process only contains
 the loopback ticket listener and browser client composition.
+
+An initial deployment may explicitly set `serviceMode: "setup"` in `cmeet.json`.
+In this mode the bundle needs only `cmeet.json`; its `http.distDir` remains
+`/app/dist`, and the same host/origin restrictions and privilege drop apply.
+The website displays its setup state and every member/authentication/MCP request
+returns 503. It creates no members, administrators, policy defaults, or storage.
+An absent mode continues to select full community startup. Invalid or incomplete
+community configuration never falls back to setup.

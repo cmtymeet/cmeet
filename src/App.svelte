@@ -309,7 +309,17 @@
   <meta name="theme-color" content="#10251d" />
 </svelte:head>
 
-{#if !signedIn}
+{#if state.auth === 'setup-required'}
+  <main class="auth-layout" aria-labelledby="setup-title">
+    <section class="auth-card setup-card">
+      <div class="auth-card-top">
+        <span class="step-label">Your community</span>
+      </div>
+      <h1 id="setup-title">{state.config?.communityName ?? 'Your community'}</h1>
+      <p class="auth-lead">This community is being set up.</p>
+    </section>
+  </main>
+{:else if !signedIn}
   <main class="auth-layout">
     <section class="auth-intro" aria-labelledby="welcome-title">
       <a class="brand brand-large" href="/" aria-label="cmeet home">
