@@ -6,6 +6,7 @@ test -n "${ARTIFACT_ROOT:-}"
 [[ "${REUSE_SOURCE_RUN:-}" =~ ^[0-9]+$ ]]
 [[ "${REUSE_SOURCE_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
 [[ "${CI_COMMIT_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
+[[ "${EXPORT_IMAGE_ARCHIVE:-false}" =~ ^(true|false)$ ]]
 mkdir -p "$ARTIFACT_ROOT" .ci-work/image-prepared
 image_tag="cmeet-runtime:${CI_COMMIT_SHA}"
 container_name="cmeet-runtime-${CI_COMMIT_SHA}"
@@ -64,6 +65,7 @@ docker image inspect node:24-trixie-slim > "$ARTIFACT_ROOT/base-image.json"
 base_digest="$(docker image inspect node:24-trixie-slim --format '{{index .RepoDigests 0}}')"
 [[ "$base_digest" =~ ^node@sha256:[0-9a-f]{64}$ ]]
 timeout --kill-after=15 300 docker build --network none --build-arg "NODE_IMAGE=$base_digest" \
+  --build-arg "SOURCE_REVISION=$CI_COMMIT_SHA" \
   --tag "$image_tag" --file Dockerfile . 2>&1 | tee "$ARTIFACT_ROOT/image-build.log"
 docker image inspect "$image_tag" > "$ARTIFACT_ROOT/runtime-image.json"
 timeout --kill-after=15 180 docker run --rm --name "$container_name" \
@@ -79,3 +81,31 @@ const result = JSON.parse(await readFile(process.env.ARTIFACT_ROOT + '/runtime-s
 assert.equal(result.ok, true); assert.equal(result.stage, 'complete');
 assert.equal(result.lddAvailable, true); assert.equal(result.libraries.length, 4);
 JS
+
+# Export only the exact image whose native smoke passed. The separate publisher
+# gets no build command and verifies this archive and image ID before pushing.
+if [[ "${EXPORT_IMAGE_ARCHIVE:-false}" = true ]]; then
+  test -n "${IMAGE_ARCHIVE_DIR:-}"
+  test -n "${GITHUB_OUTPUT:-}"
+  mkdir "$IMAGE_ARCHIVE_DIR"
+  timeout --kill-after=15 300 docker image save "$image_tag" | gzip -1 > "$IMAGE_ARCHIVE_DIR/image.tar.gz"
+  node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { appendFile, readFile, writeFile } from 'node:fs/promises';
+const [image] = JSON.parse(await readFile(process.env.ARTIFACT_ROOT + '/runtime-image.json'));
+assert.match(image.Id, /^sha256:[0-9a-f]{64}$/);
+assert.equal(image.Config.Labels['org.opencontainers.image.source'], 'https://github.com/cmtymeet/cmeet');
+assert.equal(image.Config.Labels['org.opencontainers.image.revision'], process.env.CI_COMMIT_SHA);
+const hash = createHash('sha256');
+for await (const bytes of createReadStream(process.env.IMAGE_ARCHIVE_DIR + '/image.tar.gz')) hash.update(bytes);
+const archiveSha256 = hash.digest('hex');
+await writeFile(process.env.IMAGE_ARCHIVE_DIR + '/image-archive.json', JSON.stringify({
+  format: 1, source: process.env.CI_COMMIT_SHA, imageId: image.Id,
+  archiveSha256, originalTag: 'cmeet-runtime:' + process.env.CI_COMMIT_SHA,
+}, null, 2) + '\n');
+await appendFile(process.env.GITHUB_OUTPUT, `archive_sha256=${archiveSha256}\nimage_id=${image.Id}\n`);
+JS
+  (cd "$IMAGE_ARCHIVE_DIR" && sha256sum image.tar.gz image-archive.json > SHA256SUMS)
+fi

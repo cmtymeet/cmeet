@@ -7,6 +7,9 @@ RUN node /validate-release.mjs /stage
 
 FROM ${NODE_IMAGE}
 
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/cmtymeet/cmeet" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}"
 ENV NODE_ENV=production
 WORKDIR /app
 
