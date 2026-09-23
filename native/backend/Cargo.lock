@@ -227,7 +227,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 [[package]]
 name = "cfrm"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/cmtymeet/cfrm.git?rev=f1797c80f05cf469af55ea169290e48630181d20#f1797c80f05cf469af55ea169290e48630181d20"
+source = "git+https://github.com/cmtymeet/cfrm.git?rev=0b30bad617dae921a77fe1a00799ee028f405443#0b30bad617dae921a77fe1a00799ee028f405443"
 dependencies = [
  "blind-rsa-signatures",
  "data-encoding",

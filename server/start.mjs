@@ -13,6 +13,7 @@ import { publicClientConfig } from './client-config.mjs';
 import { composeEnrollment } from './enrollment.mjs';
 import { createAnonymousTicketListener } from './anonymous-tickets.mjs';
 import { loadStorage, requireSameStorage, storeConnectionOptions } from './storage.mjs';
+import { resolveWebsiteAddress } from './domains.mjs';
 
 function absolute(value) {
   if (typeof value !== 'string' || !isAbsolute(value)) throw new Error('Absolute configured path required');
@@ -43,11 +44,9 @@ function positive(value) {
  * separately; process restarts restore them and never silently create a new
  * community, credential definition, or voucher sponsor. */
 export async function startCmeet(configFile) {
-  const config = await jsonFile(configFile, true);
+  const input = await jsonFile(configFile, true);
+  const config = { ...input, ...resolveWebsiteAddress(input) };
   const clock = () => Math.floor(Date.now() / 1000);
-  const origin = new URL(config.origin);
-  if (origin.origin !== config.origin || origin.hostname !== config.rpID
-      || (origin.protocol !== 'https:' && !(config.allowInsecureLocalhost === true && origin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname)))) throw new Error('Configured website origin rejected');
   if (typeof config.communityId !== 'string' || !/^[A-Za-z0-9._:/-]{1,256}$/.test(config.communityId)) throw new Error('Community required');
   const policy = config.eligibilityPolicy;
   if (!policy || typeof policy.version !== 'string' || !policy.version || policy.mode !== 'all'
@@ -160,6 +159,7 @@ export async function startCmeet(configFile) {
     const tickets = await createAnonymousTicketListener({ ...config.anonymousTickets, backend }); resources.push(tickets);
     const publicConfig = {
       communityId: config.communityId, communityName: config.communityName,
+      ...(config.domains ? { domains: config.domains } : {}),
       storageName: client.storageName, identityContext: client.identityContext, profileContext: client.profileContext,
       walletScope: client.walletScope, deviceAuthorizationLifetimeSeconds: client.deviceAuthorizationLifetimeSeconds,
       admissionTrust: { community_id: config.communityId, policy_digest: digest, issuer_public_key: [...entry.admissionTrust.publicKey] },

@@ -10,8 +10,9 @@ device/passkey screens, theming, per-community config, and domain
 migration. Trust logic (eligibility, admission, transport, accounting)
 stays in the cores; this app composes them.
 
-Starter tenancy is `x.cmeet.me`, graduating to a custom domain per
-community with a stable `communityId`.
+Deployment configuration supplies `baseDomain`; community, admin/root, API and
+MCP hostnames derive from it. Communities can graduate to a custom domain with a
+stable `communityId`. See [domain configuration](docs/domains.md).
 
 ## Status
 

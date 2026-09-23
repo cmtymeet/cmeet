@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { createApi, readJson } from '../server/api.mjs';
 import { createCommunityMcp } from '../server/mcp.mjs';
 import { createCmeetServer } from '../server/app.mjs';
+import { resolveWebsiteAddress } from '../server/domains.mjs';
 import { mcpResponse } from './mcp-response.mjs';
 
 const origin = 'https://site.example', communityId = 'site.example';
@@ -154,4 +155,23 @@ test('HTTP concurrency limit rejects excess work before invoking an adapter', as
     release(); assert.equal((await first).body, 'finished');
     assert.equal((await host.request('/health')).status, 200);
   } finally { release(); await host.close(); }
+});
+
+test('derived admin and API names do not widen the community HTTP authentication boundary', async () => {
+  const address = resolveWebsiteAddress({ baseDomain: 'test.example', communityLabel: 'garden' });
+  const host = await hosted({ origin: address.origin });
+  const communityHost = new URL(address.origin).host;
+  try {
+    assert.equal((await host.request('/', { headers: { host: communityHost, origin: address.origin } })).status, 200);
+    for (const other of [address.domains.admin.origin, address.domains.admin.apiOrigin,
+      address.domains.root.origin, address.domains.root.apiOrigin,
+      address.domains.community.apiOrigin, address.domains.community.mcpOrigin]) {
+      assert.equal((await host.request('/api/config', { headers: {
+        host: new URL(other).host, 'x-forwarded-host': communityHost,
+      } })).status, 400);
+      assert.equal((await host.request('/api/config', { headers: {
+        host: communityHost, origin: other,
+      } })).status, 400);
+    }
+  } finally { await host.close(); }
 });

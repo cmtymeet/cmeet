@@ -7,7 +7,7 @@ const HEX64 = /^[0-9a-f]{64}$/;
 const PACKAGE_NAMES = new Set(['cfrm', 'cfrm-browser', '@corbet-labs/cmsg', '@corbet-labs/cvld', 'tor-js']);
 const VENDOR_DIRS = ['cmsg', 'cvld', 'cfrm', 'cfrm-browser', 'tor-js'];
 const SERVER_FILES = ['start.mjs', 'app.mjs', 'api.mjs', 'mcp.mjs', 'backend.mjs', 'enrollment.mjs',
-  'anonymous-tickets.mjs', 'storage.mjs', 'account-config.mjs', 'client-config.mjs'];
+  'anonymous-tickets.mjs', 'storage.mjs', 'account-config.mjs', 'client-config.mjs', 'domains.mjs'];
 const PUBLIC_ACCOUNTING_FILES = ['manifest.json', 'circuit.json', 'vk.bin', 'setup/g1.dat', 'setup/g2.dat',
   'barretenberg-threads.wasm', 'peer-reservation/circuit.json', 'peer-reservation/vk.bin'];
 const NATIVE_INSTALLER_SOURCE = 'https://github.com/anoncreds/anoncreds-rs/releases/download/v0.2.3/library-linux-x86_64.tar.gz';
