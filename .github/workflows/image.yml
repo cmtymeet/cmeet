@@ -14,6 +14,10 @@ on:
         description: Publish the successfully checked image to GHCR
         type: boolean
         default: false
+      export_bundle:
+        description: Retain a pinned Docker build context for external builders
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -46,7 +50,18 @@ jobs:
           ARTIFACT_ROOT: ${{ runner.temp }}/image-contract
           EXPORT_IMAGE_ARCHIVE: ${{ inputs.publish_image }}
           IMAGE_ARCHIVE_DIR: ${{ runner.temp }}/image-archive
+          EXPORT_BUILD_BUNDLE: ${{ inputs.export_bundle }}
+          BUILD_BUNDLE_DIR: ${{ runner.temp }}/image-bundle
         run: bash .ci/image-checks.sh
+      - name: Retain the verified Docker build context
+        if: inputs.export_bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-bundle-${{ github.sha }}
+          path: ${{ runner.temp }}/image-bundle
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
       - name: Retain the exact checked image for publication
         if: inputs.publish_image
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

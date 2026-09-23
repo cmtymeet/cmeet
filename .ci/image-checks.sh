@@ -7,13 +7,14 @@ test -n "${ARTIFACT_ROOT:-}"
 [[ "${REUSE_SOURCE_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
 [[ "${CI_COMMIT_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
 [[ "${EXPORT_IMAGE_ARCHIVE:-false}" =~ ^(true|false)$ ]]
+[[ "${EXPORT_BUILD_BUNDLE:-false}" =~ ^(true|false)$ ]]
 mkdir -p "$ARTIFACT_ROOT" .ci-work/image-prepared
 image_tag="cmeet-runtime:${CI_COMMIT_SHA}"
 container_name="cmeet-runtime-${CI_COMMIT_SHA}"
 capture() {
   local status=$?
   trap - EXIT
-  docker rm --force "$container_name" >/dev/null 2>&1 || true
+  docker rm --force "$container_name" "cmeet-setup-${CI_COMMIT_SHA}" >/dev/null 2>&1 || true
   printf '%s\n' "$status" > "$ARTIFACT_ROOT/validation-status.txt"
   (cd "$ARTIFACT_ROOT" && find . -type f ! -path ./SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
   exit "$status"
@@ -81,6 +82,11 @@ const result = JSON.parse(await readFile(process.env.ARTIFACT_ROOT + '/runtime-s
 assert.equal(result.ok, true); assert.equal(result.stage, 'complete');
 assert.equal(result.lddAvailable, true); assert.equal(result.libraries.length, 4);
 JS
+timeout --kill-after=15 90 node .ci/image-setup-smoke.mjs "$image_tag"
+
+if [[ "${EXPORT_BUILD_BUNDLE:-false}" = true ]]; then
+  timeout --kill-after=15 300 node .ci/image-bundle.mjs
+fi
 
 # Export only the exact image whose native smoke passed. The separate publisher
 # gets no build command and verifies this archive and image ID before pushing.

@@ -3,6 +3,7 @@ FROM ${NODE_IMAGE} AS release-validation
 
 COPY deploy/stage/ /stage/
 COPY deploy/validate-release.mjs /validate-release.mjs
+COPY deploy/validate-accounting-assets.mjs /validate-accounting-assets.mjs
 RUN node /validate-release.mjs /stage
 
 FROM ${NODE_IMAGE}

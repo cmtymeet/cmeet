@@ -5,5 +5,6 @@
 !deploy/README.md
 !deploy/entrypoint.mjs
 !deploy/validate-release.mjs
+!deploy/validate-accounting-assets.mjs
 !deploy/stage/
 !deploy/stage/**
