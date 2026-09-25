@@ -1,18 +1,18 @@
 {
   "cfrm": {
-    "repository": "cmtymeet/cfrm",
+    "repository": "corbet-libs/cfrm",
     "revision": "0b30bad617dae921a77fe1a00799ee028f405443"
   },
   "cmsg": {
-    "repository": "cmtymeet/cmsg",
+    "repository": "corbet-libs/cmsg",
     "revision": "7855f4b2561d28bd33d18a979b4d4ddea9a3aa19"
   },
   "cvld": {
-    "repository": "cmtymeet/cvld",
+    "repository": "corbet-libs/cvld",
     "revision": "f19d292b509dd61366a01569794afe3c604fbaaa"
   },
   "cvch": {
-    "repository": "cmtymeet/cvch",
+    "repository": "corbet-foss/cvch",
     "revision": "dff30de1a72358208e27c0416fb8e7096e64ae04"
   },
   "anoncreds": {

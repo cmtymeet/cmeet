@@ -148,7 +148,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 [[package]]
 name = "cfrm"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/cmtymeet/cfrm.git?rev=f1797c80f05cf469af55ea169290e48630181d20#f1797c80f05cf469af55ea169290e48630181d20"
+source = "git+https://github.com/corbet-libs/cfrm.git?rev=f1797c80f05cf469af55ea169290e48630181d20#f1797c80f05cf469af55ea169290e48630181d20"
 dependencies = [
  "data-encoding",
  "ed25519-dalek",
@@ -236,7 +236,7 @@ checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 [[package]]
 name = "cmsg"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/cmtymeet/cmsg.git?rev=7855f4b2561d28bd33d18a979b4d4ddea9a3aa19#7855f4b2561d28bd33d18a979b4d4ddea9a3aa19"
+source = "git+https://github.com/corbet-libs/cmsg.git?rev=7855f4b2561d28bd33d18a979b4d4ddea9a3aa19#7855f4b2561d28bd33d18a979b4d4ddea9a3aa19"
 dependencies = [
  "chacha20poly1305",
  "data-encoding",

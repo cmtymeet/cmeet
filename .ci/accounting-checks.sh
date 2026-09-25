@@ -19,7 +19,7 @@ capture() {
 trap capture EXIT
 gh run view "$PACKAGE_RUN_ID" --repo cmtymeet/cmeet --json headSha > "$ARTIFACT_ROOT/package-run.json"
 gh run download "$PACKAGE_RUN_ID" --repo cmtymeet/cmeet --name "cmeet-$PACKAGE_SOURCE_SHA" --dir .ci-work/accounting-contract/packages
-gh run download 35731679245 --repo cmtymeet/cfrm --name private-accounting-experiment --dir .ci-work/accounting-contract/proofs
+gh run download 35731679245 --repo corbet-libs/cfrm --name private-accounting-experiment --dir .ci-work/accounting-contract/proofs
 node --input-type=module <<'JS'
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';

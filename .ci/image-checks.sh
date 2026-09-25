@@ -37,7 +37,7 @@ cmp package-lock.json "$prepared_directory/package-lock.json"
 timeout --kill-after=15 180 npm run build 2>&1 | tee "$ARTIFACT_ROOT/build.log"
 node .ci/assert-asset-closure.mjs dist
 
-gh run download 35731679245 --repo cmtymeet/cfrm --name private-accounting-experiment --dir .ci-work/image-proof-evidence
+gh run download 35731679245 --repo corbet-libs/cfrm --name private-accounting-experiment --dir .ci-work/image-proof-evidence
 node --input-type=module <<'JS'
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';

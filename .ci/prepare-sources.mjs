@@ -16,7 +16,7 @@ const artifacts = resolve(process.env.ARTIFACT_ROOT), packageDir = join(artifact
 await mkdir(work, { recursive: true }); await mkdir(vendor, { recursive: true });
 await mkdir(packageDir, { recursive: true });
 const reviewedTor = Object.freeze({
-  repository: 'cmtymeet/cmsg',
+  repository: 'corbet-libs/cmsg',
   runId: '35756419650',
   artifact: 'cmsg-tor-public-package-1d5217bea90730e2a5c018b88576d2d3ef9c6c21',
   source: '1d5217bea90730e2a5c018b88576d2d3ef9c6c21',

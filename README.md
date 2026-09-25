@@ -1,7 +1,7 @@
 # cmeet
 
-Whitelabel community frontend over the `cmtymeet` FSL cores (`cvld`,
-`cfrm`, `cmsg`) and LGPL primitives (`cvch`, plus future phone/payment
+Whitelabel community frontend over the `corbet-libs` FSL cores (`cvld`,
+`cfrm`, `cmsg`) and `corbet-foss` LGPL primitives (`cvch`, plus future phone/payment
 helpers). One deployment per community, selected by config
 (`communityId`, host allowlist, brand/copy, policy tunables).
 
