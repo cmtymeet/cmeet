@@ -29,7 +29,8 @@ on member devices. See [storage configuration](docs/storage.md).
 
 ## License
 
-No `LICENSE` file is committed yet. BUSL-1.1 is proposed; the final
-license text (including Change Date and Additional Use Grant) is an
-owner decision. Do not assume a license grant until one is published
-in this repository.
+The cmeet source in this repository is licensed under [BUSL-1.1](LICENSE.md).
+There is no Additional Use Grant: production use requires a commercial license
+until the applicable Change Date. Each specific version changes to Apache-2.0
+four years after its first public distribution under BUSL. Dependencies retain
+their own licenses.
