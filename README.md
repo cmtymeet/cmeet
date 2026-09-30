@@ -4,6 +4,7 @@ Whitelabel community frontend over the `corbet-libs` FSL cores (`cvld`,
 `cfrm`, `cmsg`) and `corbet-foss` LGPL primitives (`cvch`, plus future phone/payment
 helpers). One deployment per community, selected by config
 (`communityId`, host allowlist, brand/copy, policy tunables).
+Product requirements: [user stories, decisions, open questions and glossary](docs/product/README.md).
 
 All UI lives here: routing, discovery, profiles, first-contact, DMs,
 device/passkey screens, theming, per-community config, and domain
