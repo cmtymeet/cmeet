@@ -39,7 +39,7 @@ body {
 }
 .topnav a:focus-visible, .topnav button.nav:focus-visible { outline: 3px solid var(--cmeet-focus); }
 
-.grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); }
+.grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
 .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
 .field-row { display: flex; gap: 0.5rem; align-items: end; flex-wrap: wrap; }
 
@@ -53,7 +53,7 @@ body {
 
 .composer { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
 .composer input {
-  flex: 1; font: inherit; padding: 0.55rem 0.7rem;
+  flex: 1; min-width: 0; font: inherit; padding: 0.55rem 0.7rem;
   border: 1px solid var(--cmeet-line); border-radius: var(--cmeet-radius);
   background: var(--cmeet-surface); color: var(--cmeet-ink);
 }
@@ -67,3 +67,11 @@ body {
 
 .schema-row { display: flex; gap: 0.5rem; align-items: center; border: 1px dashed var(--cmeet-line); border-radius: 8px; padding: 0.5rem; margin-block: 0.35rem; background: var(--cmeet-surface); }
 .schema-row.dragging { opacity: 0.5; }
+
+button, input, select, textarea { max-width: 100%; }
+button, a, input, select, textarea { touch-action: manipulation; }
+.page, .bubble { overflow-wrap: anywhere; }
+.schema-row, .gate-list li { flex-wrap: wrap; }
+#content:focus { outline: none; }
+@media (max-width: 40rem) { .topnav { position: static; } .page { padding: 0.85rem; } .layout { padding: 0.5rem; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }

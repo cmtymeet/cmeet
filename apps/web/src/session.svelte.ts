@@ -2,6 +2,7 @@ import type {
   CmsgClient,
   CmsgEvent,
   ConnectionStatus,
+  LobbyState,
 } from '../../../core/src/cmsg.js';
 
 // This fixture is available only in the development server. A production
@@ -9,8 +10,20 @@ import type {
 export async function createClient(): Promise<CmsgClient | null> {
   if (import.meta.env.DEV) {
     const { createDevCmsg } = await import('../../../core/src/dev-adapter.js');
-    const delay = Number(new URLSearchParams(window.location.search).get('dev-connect-delay'));
-    return createDevCmsg(Number.isSafeInteger(delay) && delay > 0 ? { connectDelayMs: delay } : {});
+    const params = new URLSearchParams(window.location.search);
+    const delay = Number(params.get('dev-connect-delay'));
+    const gate = params.get('dev-gate');
+    const restore = params.get('dev-restore');
+    const message = params.get('dev-message');
+    return createDevCmsg({
+      connectDelayMs: Number.isSafeInteger(delay) && delay > 0 ? delay : undefined,
+      failConnect: params.get('dev-network') === 'failed',
+      gateState: gate === 'waiting' || gate === 'action-needed' ? gate : undefined,
+      restoreState: restore === 'locked' || restore === 'unavailable' || restore === 'unrecoverable' ? restore : undefined,
+      incomingReleaseState: params.get('dev-incoming') === 'reserved' ? 'reserved' : undefined,
+      messageState: message === 'queued' || message === 'stored' || message === 'received' ? message : undefined,
+      failActions: params.getAll('dev-fail'),
+    });
   }
   return null;
 }
@@ -33,14 +46,16 @@ export type Route =
 export function parseHash(hash: string): Route {
   const path = hash.replace(/^#\/?/, '');
   const [head, tail] = path.split('/');
+  let decoded = '';
+  try { decoded = decodeURIComponent(tail ?? ''); } catch { return { name: 'arrival' }; }
   switch (head) {
     case 'lobby': return { name: 'lobby' };
     case 'profile': return { name: 'profile' };
     case 'forum': return { name: 'forum' };
     case 'waves': return { name: 'waves' };
     case 'contacts': return { name: 'contacts' };
-    case 'chat': return { name: 'chat', peer: decodeURIComponent(tail ?? '') };
-    case 'groups': return tail ? { name: 'group', id: decodeURIComponent(tail) } : { name: 'groups' };
+    case 'chat': return { name: 'chat', peer: decoded };
+    case 'groups': return tail ? { name: 'group', id: decoded } : { name: 'groups' };
     case 'devices': return { name: 'devices' };
     case 'admin': return { name: 'admin-schema' };
     case 'root': return { name: 'root' };
@@ -71,6 +86,7 @@ export interface SessionSnapshot {
   connection: ConnectionStatus;
   joined: boolean;
   unreadWaves: number;
+  lobby: LobbyState | null;
 }
 
 export class Session {
@@ -79,7 +95,9 @@ export class Session {
     connection: { phase: 'starting', progress: 0, backend: 'tor', message: 'Preparing the network.' },
     joined: false,
     unreadWaves: 0,
+    lobby: null,
   });
+  private generation = 0;
   private detach: (() => void) | null = null;
 
   constructor(client: CmsgClient) {
@@ -90,18 +108,36 @@ export class Session {
     if (event.type === 'connection') {
       this.snapshot = { ...this.snapshot, connection: event.status };
     }
+    if (event.type === 'lobby') this.snapshot = { ...this.snapshot, lobby: event.lobby };
     if (event.type === 'wave-incoming' || event.type === 'wave-updated') {
       void this.refreshWaves();
     }
   };
 
   async start() {
+    const generation = ++this.generation;
     this.detach?.();
     this.detach = this.client.subscribe(this.onEvent);
-    this.snapshot = { ...this.snapshot, connection: await this.client.connectionStatus() };
-    const status = await this.client.connect();
-    this.snapshot = { ...this.snapshot, connection: status };
-    await this.refreshWaves();
+    try {
+      const initial = await this.client.connectionStatus();
+      if (generation !== this.generation) return;
+      this.snapshot = { ...this.snapshot, connection: initial };
+      const status = await this.client.connect();
+      if (generation !== this.generation) return;
+      this.snapshot = { ...this.snapshot, connection: status };
+      if (this.snapshot.joined) await this.refreshWaves();
+    } catch (error) {
+      if (generation !== this.generation) return;
+      this.snapshot = { ...this.snapshot, connection: { ...this.snapshot.connection,
+        phase: 'failed', message: error instanceof Error ? error.message : 'Connection unavailable.' } };
+    }
+  }
+
+  stop() {
+    ++this.generation;
+    this.detach?.();
+    this.detach = null;
+    void this.client.disconnect().catch(() => {});
   }
 
   async retry() {
@@ -109,8 +145,10 @@ export class Session {
   }
 
   private async refreshWaves() {
+    const generation = this.generation;
     try {
       const waves = await this.client.incomingWaves();
+      if (generation !== this.generation) return;
       const unread = waves.filter((w) => w.state === 'pending').length;
       if (unread !== this.snapshot.unreadWaves) {
         this.snapshot = { ...this.snapshot, unreadWaves: unread };
