@@ -151,13 +151,15 @@ pub async fn session<B: Backend, E: Stream<Item = io::Result<Event>> + Unpin>(
     cancel: CancellationToken,
 ) -> Result<u8, ErrorCode> {
     let mut view = View::default();
+    let mut response_not_shown = false;
     loop {
-        terminal
-            .draw(|frame| view.draw(frame))
-            .map_err(|_| ErrorCode::Unavailable)?;
+        terminal.draw(|frame| view.draw(frame)).map_err(|error| {
+            if response_not_shown { ErrorCode::Reconcile } else { runtime::unavailable(error) }
+        })?;
+        response_not_shown = false;
         let event = tokio::select! {
             _ = cancel.cancelled() => return Err(ErrorCode::Reconcile),
-            event = events.next() => event.ok_or(ErrorCode::Unavailable)?.map_err(|_| ErrorCode::Unavailable)?,
+            event = events.next() => event.ok_or(ErrorCode::Unavailable)?.map_err(runtime::unavailable)?,
         };
         match view.event(event) {
             Intent::Exit => return Ok(view.exit_code),
@@ -169,7 +171,7 @@ pub async fn session<B: Backend, E: Stream<Item = io::Result<Event>> + Unpin>(
                         view.result = "Waiting for owner response. Outcome unknown.".into();
                         terminal
                             .draw(|frame| view.draw(frame))
-                            .map_err(|_| ErrorCode::Unavailable)?;
+                            .map_err(runtime::unavailable)?;
                         let operation = runtime::invoke(client, &bytes);
                         tokio::pin!(operation);
                         loop {
@@ -186,6 +188,7 @@ pub async fn session<B: Backend, E: Stream<Item = io::Result<Event>> + Unpin>(
                     }
                 };
                 view.complete(&output);
+                response_not_shown = true;
             }
         }
     }
@@ -205,11 +208,11 @@ pub async fn run(client: Client, cancel: CancellationToken) -> Result<u8, ErrorC
             let _ = rustix::fs::fcntl_setfl(io::stdout(), self.0);
         }
     }
-    let flags = rustix::fs::fcntl_getfl(io::stdout()).map_err(|_| ErrorCode::Unavailable)?;
+    let flags = rustix::fs::fcntl_getfl(io::stdout()).map_err(runtime::unavailable)?;
     let _restore = Restore(flags);
     rustix::fs::fcntl_setfl(io::stdout(), flags | rustix::fs::OFlags::NONBLOCK)
-        .map_err(|_| ErrorCode::Unavailable)?;
-    let mut terminal = ratatui::try_init().map_err(|_| ErrorCode::Unavailable)?;
+        .map_err(runtime::unavailable)?;
+    let mut terminal = ratatui::try_init().map_err(runtime::unavailable)?;
     session(&client, &mut terminal, EventStream::new(), cancel).await
 }
 #[cfg(not(unix))]

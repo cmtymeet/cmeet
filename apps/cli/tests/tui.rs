@@ -64,7 +64,10 @@ fn registry_editing_and_safe_rendering_preserve_original_owner_input() {
     });
     terminal.draw(|f| view.draw(f)).unwrap();
     for prefix in ["", "a"] {
-        view.complete(&Output::Ok { result: serde_json::json!(format!("{prefix}{}", "é".repeat(100000))), events: vec![] });
+        view.complete(&Output::Ok {
+            result: serde_json::json!(format!("{prefix}{}", "é".repeat(100000))),
+            events: vec![],
+        });
     }
     for _ in 0..cmsg::door::MAX_BODY_BYTES {
         view.event(key(KeyCode::Char('x')));
@@ -160,16 +163,33 @@ async fn terminal_requires_real_tty_and_handles_closed_input_and_cancellation() 
 #[tokio::test]
 async fn real_tty_input_with_piped_output_is_refused() {
     let host = Host::new().await;
-    let result = host.spawn("terminal-output-test", ORIGIN).wait_with_output().await.unwrap();
-    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    let result = host
+        .spawn("terminal-output-test", ORIGIN)
+        .wait_with_output()
+        .await
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
 }
 
-struct WriterFailure { flushes_left: usize }
+struct WriterFailure {
+    flushes_left: usize,
+}
 impl std::io::Write for WriterFailure {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if self.flushes_left == 0 { Err(std::io::ErrorKind::BrokenPipe.into()) } else { Ok(bytes.len()) }
+        if self.flushes_left == 0 {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        } else {
+            Ok(bytes.len())
+        }
     }
-    fn flush(&mut self) -> std::io::Result<()> { self.flushes_left = self.flushes_left.saturating_sub(1); Ok(()) }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.flushes_left = self.flushes_left.saturating_sub(1);
+        Ok(())
+    }
 }
 
 #[tokio::test]
@@ -177,8 +197,23 @@ async fn terminal_write_failures_stop_before_any_owner_dispatch() {
     let host = Host::new().await;
     for flushes_left in [0, 1] {
         let backend = ratatui::backend::CrosstermBackend::new(WriterFailure { flushes_left });
-        let mut terminal = Terminal::with_options(backend, ratatui::TerminalOptions { viewport: ratatui::Viewport::Fixed(ratatui::layout::Rect::new(0, 0, 80, 24)) }).unwrap();
-        assert!(matches!(session(&host.client(), &mut terminal, futures::stream::iter([Ok(key(KeyCode::Enter))]), CancellationToken::new()).await, Err(ErrorCode::Unavailable)));
+        let mut terminal = Terminal::with_options(
+            backend,
+            ratatui::TerminalOptions {
+                viewport: ratatui::Viewport::Fixed(ratatui::layout::Rect::new(0, 0, 80, 24)),
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            session(
+                &host.client(),
+                &mut terminal,
+                futures::stream::iter([Ok(key(KeyCode::Enter))]),
+                CancellationToken::new()
+            )
+            .await,
+            Err(ErrorCode::Unavailable)
+        ));
     }
     assert_eq!(host.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
 }
@@ -186,10 +221,35 @@ async fn terminal_write_failures_stop_before_any_owner_dispatch() {
 #[tokio::test]
 async fn keys_and_closed_input_during_real_pending_call_never_dispatch_twice() {
     let host = Host::delayed(std::time::Duration::from_secs(2)).await;
-    for last in [Some(Ok(key(KeyCode::Esc))), Some(Err(std::io::ErrorKind::BrokenPipe.into())), None] {
+    for last in [
+        Some(Ok(key(KeyCode::Esc))),
+        Some(Err(std::io::ErrorKind::BrokenPipe.into())),
+        None,
+    ] {
         let mut events = vec![Ok(key(KeyCode::Enter)), Ok(Event::Resize(80, 24))];
         events.extend(last);
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
-        assert!(matches!(session(&host.client(), &mut terminal, futures::stream::iter(events), CancellationToken::new()).await, Err(ErrorCode::Reconcile)));
+        assert!(matches!(
+            session(
+                &host.client(),
+                &mut terminal,
+                futures::stream::iter(events),
+                CancellationToken::new()
+            )
+            .await,
+            Err(ErrorCode::Reconcile)
+        ));
     }
+}
+
+#[tokio::test]
+async fn output_failure_after_owner_response_requires_reconciliation() {
+    use futures::StreamExt;
+    let host = Host::new().await;
+    let backend = ratatui::backend::CrosstermBackend::new(WriterFailure { flushes_left: 2 });
+    let mut terminal = Terminal::with_options(backend, ratatui::TerminalOptions { viewport: ratatui::Viewport::Fixed(ratatui::layout::Rect::new(0, 0, 80, 24)) }).unwrap();
+    let events = futures::stream::iter([Ok(key(KeyCode::Enter))]).chain(futures::stream::pending());
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), session(&host.client(), &mut terminal, events, CancellationToken::new())).await.unwrap();
+    assert!(matches!(result, Err(ErrorCode::Reconcile)));
+    assert_eq!(host.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }

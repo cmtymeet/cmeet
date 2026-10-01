@@ -67,7 +67,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dependency-snapshot
-      - run: python3 .ci/policy/check-first-party.py
+      - run: |
+          python3 .ci/policy/check-first-party.py
+          python3 .ci/policy/test-source-coverage.py
   check:
     needs: [resolve, dependency-policy]
     if: always() && !cancelled() && needs.dependency-policy.result == 'success'
@@ -153,7 +155,7 @@ jobs:
               fi
               cargo llvm-cov report --manifest-path "$root/Cargo.toml" --branch --text --output-path "coverage/$(basename "$root").txt" || failed=1
               cargo llvm-cov report --manifest-path "$root/Cargo.toml" --branch --lcov --output-path "coverage/$(basename "$root").lcov" || failed=1
-              python3 .ci/policy/check-coverage.py "$report" || failed=1
+              python3 .ci/policy/check-source-coverage.py "coverage/$(basename "$root").lcov" "$report" "coverage/$(basename "$root").txt" || failed=1
             else
               echo "::error::No coverage for unresolved root: $root"
               failed=1

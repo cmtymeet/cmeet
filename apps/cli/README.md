@@ -84,7 +84,9 @@ and stdout, real MCP negotiation/calls, and an actual pseudo-terminal. The test
 host's owner `Door::pair_client` control is trusted fixture setup, not production
 bootstrap, G2/G3 evidence or a frontend capability endpoint. Generic I/O fault
 adapters exercise operating-system boundary behavior only. Rust coverage requires
-100% measured reachable lines and branches; coverage gaps fail the job. Browser
+100% emitted production source lines and branches; coverage gaps fail the job.
+[Coverage evidence and its limits](../../docs/coverage.md) describe the exact
+metric and same-execution report-integrity checks. Browser
 production refusal and the full [toy acceptance contract](../../tests/toy/README.md)
 remain separate gates. The toy remains explicitly blocked until every actual
 required operation exists and its conjunctive scenario executes.

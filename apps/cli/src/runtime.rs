@@ -4,6 +4,10 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use zeroize::Zeroizing;
 
+/// Value-free boundary error conversion, shared by every I/O adapter. Input,
+/// capability and terminal diagnostics must never include upstream contents.
+pub(crate) fn unavailable<E>(_: E) -> ErrorCode { ErrorCode::Unavailable }
+
 pub const IO_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Read the original bytes, including duplicate fields, with a hard byte/time cap.
@@ -14,8 +18,8 @@ pub async fn input(reader: impl AsyncRead + Unpin, limit: usize) -> Result<Vec<u
         reader.take(limit as u64 + 1).read_to_end(&mut bytes),
     )
     .await
-    .map_err(|_| ErrorCode::Unavailable)?
-    .map_err(|_| ErrorCode::Unavailable)?;
+    .map_err(unavailable)?
+    .map_err(unavailable)?;
     if bytes.len() > limit {
         return Err(ErrorCode::Capacity);
     }
@@ -75,28 +79,28 @@ pub async fn capability(fd: u32) -> Result<ClientToken, ErrorCode> {
     {
         return Err(ErrorCode::Unauthorized);
     }
-    let pipe = tokio::io::unix::AsyncFd::new(file).map_err(|_| ErrorCode::Unavailable)?;
+    let pipe = tokio::io::unix::AsyncFd::new(file).map_err(unavailable)?;
     let read = async {
         let mut bytes = Zeroizing::new(Vec::new());
         loop {
             let mut buffer = Zeroizing::new([0; 44]);
-            let mut guard = pipe.readable().await.map_err(|_| ErrorCode::Unavailable)?;
-            match guard.try_io(|inner| inner.get_ref().read(buffer.as_mut())) {
-                Ok(Ok(0)) => return ClientToken::from_protected_transport(bytes),
-                Ok(Ok(count)) => {
-                    bytes.extend_from_slice(&buffer[..count]);
-                    if bytes.len() > 43 {
-                        return Err(ErrorCode::Unauthorized);
-                    }
-                }
-                Ok(Err(_)) => return Err(ErrorCode::Unavailable),
+            let mut guard = pipe.readable().await.map_err(unavailable)?;
+            let count = match guard.try_io(|inner| inner.get_ref().read(buffer.as_mut())) {
+                Ok(result) => result.map_err(unavailable)?,
                 Err(_) => continue,
+            };
+            if count == 0 {
+                return ClientToken::from_protected_transport(bytes);
+            }
+            bytes.extend_from_slice(&buffer[..count]);
+            if bytes.len() > 43 {
+                return Err(ErrorCode::Unauthorized);
             }
         }
     };
     tokio::time::timeout(IO_DEADLINE, read)
         .await
-        .map_err(|_| ErrorCode::Unavailable)?
+        .map_err(unavailable)?
 }
 
 #[cfg(not(unix))]

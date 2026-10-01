@@ -251,12 +251,12 @@ pub async fn serve(
         Server::new(client).serve_with_ct(transport, cancel),
     )
     .await
-    .map_err(|_| ErrorCode::Unavailable)?
-    .map_err(|_| ErrorCode::Unavailable)?;
+    .map_err(runtime::unavailable)?
+    .map_err(runtime::unavailable)?;
     let reason = service
         .waiting()
         .await
-        .map_err(|_| ErrorCode::Unavailable)?;
+        .map_err(runtime::unavailable)?;
     if !pending.lock().await.is_empty() {
         return Err(ErrorCode::Reconcile);
     }
