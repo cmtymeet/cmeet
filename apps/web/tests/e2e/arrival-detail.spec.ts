@@ -20,7 +20,7 @@ test('combined action opens passkey and voucher paths, voucher joins to lobby', 
 
   // Empty inputs are refused with a plain message, without joining.
   await page.getByRole('button', { name: 'Continue to join' }).click();
-  await expect(page.getByRole('alert')).toContainText('voucher');
+  await expect(page.getByRole('alert').last()).toContainText('voucher');
 
   // Bad vouchers are refused with a plain message.
   await page.getByLabel('Invitation voucher').fill('not-a-voucher');

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import type { CmsgClient } from '../../../../core/src/cmsg.js';
   import { Button, TextField, Notice } from '../../../../ui/src/index.js';
   import { community } from '../community.js';
@@ -23,7 +24,7 @@
 
   function focusError() {
     // Let Svelte render the alert first, then move focus for screen readers.
-    requestAnimationFrame(() => errorRef?.focus());
+    void tick().then(() => errorRef?.focus());
   }
 
   function start() {
