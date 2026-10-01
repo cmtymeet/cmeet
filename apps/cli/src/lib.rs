@@ -26,10 +26,11 @@ pub enum Error {
     InvalidOutput,
 }
 
-/// Read a single JSON document using the type and byte limit owned by the API.
+/// Read bytes without reserializing an API document. In particular, nested
+/// duplicate fields must reach the owner's decoder unchanged, for rejection.
 /// Read at most one byte beyond the limit before refusing the input. There is no
-/// dispatch or side effect until the complete document has been deserialized.
-pub fn read_json<T: DeserializeOwned>(reader: impl Read, max_bytes: u32) -> Result<T, Error> {
+/// dispatch or domain side effect here.
+pub fn read_bytes(reader: impl Read, max_bytes: u32) -> Result<Vec<u8>, Error> {
     let mut bytes = Vec::new();
     reader
         .take(u64::from(max_bytes) + 1)
@@ -38,7 +39,14 @@ pub fn read_json<T: DeserializeOwned>(reader: impl Read, max_bytes: u32) -> Resu
     if bytes.len() as u64 > u64::from(max_bytes) {
         return Err(Error::InputTooLarge);
     }
-    serde_json::from_slice(&bytes).map_err(|_| Error::InvalidJson)
+    Ok(bytes)
+}
+
+/// Decode a complete typed document. Use `read_bytes` for forwarding API input
+/// to the owning dispatcher; decoding an arbitrary Value would lose duplicate
+/// object fields before the owner can reject them.
+pub fn read_json<T: DeserializeOwned>(reader: impl Read, max_bytes: u32) -> Result<T, Error> {
+    serde_json::from_slice(&read_bytes(reader, max_bytes)?).map_err(|_| Error::InvalidJson)
 }
 
 /// Serialize completely before writing, so a serialization failure cannot emit

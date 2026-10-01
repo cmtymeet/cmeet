@@ -73,8 +73,17 @@ def self_test():
 if __name__ == '__main__':
     self_test()
     if '--self-test' not in sys.argv:
-        paths = subprocess.check_output(['git', 'ls-files', '-z'], text=True).split('\0')
-        for name in paths:
+        paths = set(subprocess.check_output(['git', 'ls-files', '-z'], text=True).split('\0'))
+        # A first CI resolution creates an untracked lockfile. Check that snapshot
+        # too, before it is returned as an artifact and committed by its owner.
+        for name in list(paths):
+            path = Path(name)
+            if path.name == 'Cargo.toml':
+                lock = path.with_name('Cargo.lock')
+                if not lock.is_file():
+                    sys.exit(f'Missing resolved snapshot: {lock}')
+                paths.add(str(lock))
+        for name in sorted(paths):
             path = Path(name)
             if path.name == 'Cargo.toml':
                 check_manifest(tomllib.loads(path.read_text()))

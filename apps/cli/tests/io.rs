@@ -1,4 +1,4 @@
-use cmeet::{Error, Format, read_json, write_json};
+use cmeet::{Error, Format, read_bytes, read_json, write_json};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::{self, Cursor, Read, Write};
@@ -8,6 +8,12 @@ use std::io::{self, Cursor, Read, Write};
 #[serde(deny_unknown_fields)]
 struct Document {
     text: String,
+}
+
+#[test]
+fn forwarded_input_preserves_duplicate_fields_for_the_owner_to_reject() {
+    let input = b"{\"body\": {\"text\":\"a\",\"text\":\"b\"}}";
+    assert_eq!(read_bytes(input.as_slice(), 100).unwrap(), input);
 }
 
 #[test]
@@ -41,7 +47,10 @@ fn bounded_read_accepts_exact_limit_and_stops_after_one_excess_byte() {
     let mut input = Cursor::new(b"null followed by much more data".as_slice());
     assert_eq!(read_json::<Value>(&mut input, 3), Err(Error::InputTooLarge));
     assert_eq!(input.position(), 4);
-    assert_eq!(read_json::<Value>(b"0".as_slice(), 0), Err(Error::InputTooLarge));
+    assert_eq!(
+        read_json::<Value>(b"0".as_slice(), 0),
+        Err(Error::InputTooLarge)
+    );
 }
 
 #[test]
@@ -64,7 +73,10 @@ fn serializer_failure_writes_nothing_in_either_format() {
     let invalid = std::collections::BTreeMap::from([(vec![1, 2], "value")]);
     for format in [Format::Json, Format::Pretty] {
         let mut output = Vec::new();
-        assert_eq!(write_json(&mut output, &invalid, format), Err(Error::InvalidOutput));
+        assert_eq!(
+            write_json(&mut output, &invalid, format),
+            Err(Error::InvalidOutput)
+        );
         assert!(output.is_empty());
     }
 }
@@ -72,7 +84,10 @@ fn serializer_failure_writes_nothing_in_either_format() {
 struct BrokenInput;
 impl Read for BrokenInput {
     fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-        Err(io::Error::new(io::ErrorKind::PermissionDenied, "private detail"))
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "private detail",
+        ))
     }
 }
 
