@@ -11,3 +11,13 @@ Thin shared client layer. Used by `apps/web` today and `apps/tauri` later.
   development and component tests. Never shipped as production behaviour. The
   generated client and its types replace this provisional seam. UI fixture
   tests do not establish backend correctness or network readiness.
+
+The fixture includes typed locations and distance filters, actionable lobby
+steps, reserved/released introductions, separate conversation and delivery
+states, consent proposals, pending device pairing and community-scoped portal
+settings. Portal sign-in delegates to cmsg. It never collects passkey material.
+Inherited settings and explicit empty overrides are distinct responses.
+
+No DTO or fixture claims backend agreement. Replace this handwritten contract
+with generated types once the cmsg definition exists, and verify every facade
+against that definition before enabling a production runtime.

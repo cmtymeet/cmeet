@@ -57,7 +57,7 @@
         label: kind === 'exit' ? 'Exit fork' : 'Split proposal',
         detail: 'Each mover chooses; nonmovers keep the original group.',
       });
-      forkNote = `Fork created as “${next.name}”. Earlier history stays with you.`;
+      forkNote = `Proposal added to “${next.name}”. Each mover still chooses whether to consent.`;
       await load();
     } catch (e) {
       error = e instanceof Error ? e.message : 'The fork did not work.';

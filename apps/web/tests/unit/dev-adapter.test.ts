@@ -90,7 +90,7 @@ describe('two-way forum discovery', () => {
     await client.publishProfile({ age: 34, neighbourhood: 'North', weekend: 'Hiking' });
     const rejected = await client.requestPrivateKey('member-rin');
     expect(rejected.status).toBe('rejected');
-    expect(rejected.failingField).toBe('age');
+    expect(rejected.failingField).toBe('weekend');
     expect(rejected.reason).toBeUndefined();
   });
 });
@@ -152,15 +152,18 @@ describe('groups by size', () => {
     const room = groups.find((g) => g.id === 'group-market')!;
     expect(room.level).toBe('room');
     expect(room.joinConsent).toMatch(/consent/);
-    const joined = await client.joinGroup(room.id);
+    const joined = await client.joinGroup(room.id, true);
     expect(joined.joined).toBe(true);
     expect(joined.size).toBe(68);
     await client.sendGroupMessage(room.id, 'See you Saturday!');
     const [updated] = (await client.groups()).filter((g) => g.id === room.id);
     expect(updated!.messages.length).toBe(1);
     const fork = await client.proposeFork({ groupId: room.id, kind: 'exit', label: 'Exit', detail: '' });
-    expect(fork.level).toBe('circle');
-    expect(fork.joined).toBe(true);
+    expect(fork.id).toBe(room.id);
+    expect(fork.forks?.[0]?.consented).toBe(false);
+    const moved = await client.consentFork(room.id, fork.forks![0]!.id);
+    expect(moved.id).not.toBe(room.id);
+    expect((await client.groups()).find(group => group.id === room.id)?.joined).toBe(true);
   });
 });
 
@@ -182,6 +185,7 @@ describe('devices', () => {
 describe('admin and root', () => {
   it('saves the schema and reports impact', async () => {
     const client = createDevCmsg();
+    await client.signInRole('admin');
     const schema = await client.adminSchema();
     const impact = await client.adminSaveSchema({ ...schema, fields: [...schema.fields].reverse() });
     expect(impact.profilesNeedingChanges).toBeGreaterThanOrEqual(0);
@@ -190,6 +194,7 @@ describe('admin and root', () => {
 
   it('lists communities for root', async () => {
     const client = createDevCmsg();
+    await client.signInRole('root');
     const communities = await client.rootCommunities();
     expect(communities.length).toBeGreaterThan(0);
   });

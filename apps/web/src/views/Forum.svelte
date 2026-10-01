@@ -80,7 +80,7 @@
             <TextField
               id="filter-{field.key}"
               label={field.question}
-              value={filters.find((f) => f.field === field.key)?.equals?.[0] ?? ''}
+              value={String(filters.find((f) => f.field === field.key)?.equals?.[0] ?? '')}
               choices={field.choices}
               oninput={(v) => setFilter(field.key, v ? { equals: [v] } : null)}
             />
