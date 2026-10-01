@@ -44,3 +44,7 @@ Every stage in [its contract](../tests/toy/README.md) remains required. An absen
 verifier, reservation, anonymous room permit or replica cannot be replaced with
 an accepting fixture. The dependency merger continues to require toy, web,
 coverage and every other substantive exact-head check plus enforced protections.
+
+The nonmoving `prototype-before-cmsg-cli` tag preserves commit
+`c653ed8a579592a5d4383d0f9a1ca380c387b20a` before retirement. It is a
+historical source reference, not a release or runtime acceptance.

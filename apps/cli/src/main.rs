@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use cmeet::{Format, runtime, write_json};
+use cmeet::{Format, mcp, runtime, write_json};
 use cmsg::door::{ErrorCode, Output, native::Client, surface};
 use std::{io, process::ExitCode, time::Duration};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Parser)]
 #[command(version, about = "cmeet member client", after_help = "Calls require an already paired cmsg runtime. Member bootstrap and production passkey custody are not yet integrated.")]
@@ -22,7 +23,6 @@ struct Connection {
     #[arg(long)]
     capability_fd: u32,
 }
-
 impl Connection {
     async fn connect(self) -> Result<Client, ErrorCode> {
         Client::new(&self.endpoint, &self.origin, runtime::capability(self.capability_fd).await?)
@@ -43,51 +43,81 @@ enum Command {
         #[command(flatten)]
         connection: Connection,
     },
+    /// Serve the owner's tools through MCP on bounded stdin/stdout.
+    Mcp {
+        #[command(flatten)]
+        connection: Connection,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
 enum Projection { Cli, Mcp, Openapi, Bundle }
 
+enum Session { Invoke, Mcp }
+
 fn main() -> ExitCode {
-    let command = Arguments::parse().command;
-    if let Command::Api { projection, pretty } = command {
-        let value = match projection {
-            Projection::Cli => surface::cli_commands(),
-            Projection::Mcp => surface::mcp_tools(),
-            Projection::Openapi => surface::openapi(),
-            Projection::Bundle => surface::bundle(),
-        };
-        let format = if pretty { Format::Pretty } else { Format::Json };
-        return match write_json(&mut io::stdout().lock(), &value, format) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(_) => { eprintln!("cmeet: output unavailable"); ExitCode::FAILURE }
-        };
-    }
-    let runtime = match tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build() {
-        Ok(runtime) => runtime,
-        Err(_) => { eprintln!("cmeet: runtime unavailable"); return ExitCode::from(ErrorCode::Unavailable.exit_code()); }
+    let (session, connection) = match Arguments::parse().command {
+        Command::Api { projection, pretty } => {
+            let value = match projection {
+                Projection::Cli => surface::cli_commands(),
+                Projection::Mcp => surface::mcp_tools(),
+                Projection::Openapi => surface::openapi(),
+                Projection::Bundle => surface::bundle(),
+            };
+            let format = if pretty { Format::Pretty } else { Format::Json };
+            return match write_json(&mut io::stdout().lock(), &value, format) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(_) => { eprintln!("cmeet: output unavailable"); ExitCode::FAILURE }
+            };
+        }
+        Command::Invoke { connection } => (Session::Invoke, connection),
+        Command::Mcp { connection } => (Session::Mcp, connection),
     };
-    let code = runtime.block_on(run(command));
-    // Tokio standard I/O uses blocking tasks. A pipe whose writer never closes
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
+        .expect("cmeet: runtime unavailable");
+    let code = runtime.block_on(run(session, connection));
+    // Tokio standard I/O uses blocking tasks; a pipe whose writer never closes
     // must not prevent process exit after the bounded read or cancellation.
     runtime.shutdown_timeout(Duration::from_millis(100));
     ExitCode::from(code)
 }
 
-async fn run(command: Command) -> u8 {
-    let Command::Invoke { connection } = command else { unreachable!() };
-    let operation = async {
-        let client = connection.connect().await?;
-        let bytes = runtime::input(tokio::io::stdin(), cmsg::door::MAX_BODY_BYTES).await?;
-        Ok::<_, ErrorCode>(runtime::invoke(&client, &bytes).await)
+async fn run(session: Session, connection: Connection) -> u8 {
+    let cancel = CancellationToken::new();
+    let signal = cancel.clone();
+    let signal_task = tokio::spawn(async move { let _ = tokio::signal::ctrl_c().await; signal.cancel(); });
+    let client = tokio::select! {
+        client = connection.connect() => client,
+        _ = cancel.cancelled() => Err(ErrorCode::Reconcile),
     };
-    let result = tokio::select! {
-        result = operation => result,
-        _ = tokio::signal::ctrl_c() => Err(ErrorCode::Reconcile),
+    let code = match session {
+        Session::Invoke => {
+            let operation = async {
+                let client = client?;
+                let bytes = runtime::input(tokio::io::stdin(), cmsg::door::MAX_BODY_BYTES).await?;
+                Ok::<_, ErrorCode>(runtime::invoke(&client, &bytes).await)
+            };
+            let result = tokio::select! {
+                result = operation => result,
+                _ = cancel.cancelled() => Err(ErrorCode::Reconcile),
+            };
+            let output = match result { Ok(output) => output, Err(error) => Output::Error { error } };
+            match runtime::output(&mut tokio::io::stdout(), &output).await {
+                Ok(()) => runtime::exit_code(&output),
+                Err(_) => { eprintln!("cmeet: output unavailable; action outcome may require reconciliation"); 1 }
+            }
+        }
+        Session::Mcp => {
+            let result = match client {
+                Ok(client) => mcp::serve(client, tokio::io::stdin(), tokio::io::stdout(), cancel).await,
+                Err(error) => Err(error),
+            };
+            match result {
+                Ok(()) => 0,
+                Err(error) => { eprintln!("cmeet: MCP session unavailable; outstanding actions may require reconciliation"); error.exit_code() }
+            }
+        }
     };
-    let output = match result { Ok(output) => output, Err(error) => Output::Error { error } };
-    match runtime::output(&mut tokio::io::stdout(), &output).await {
-        Ok(()) => runtime::exit_code(&output),
-        Err(_) => { eprintln!("cmeet: output unavailable; action outcome may require reconciliation"); 1 }
-    }
+    signal_task.abort();
+    code
 }

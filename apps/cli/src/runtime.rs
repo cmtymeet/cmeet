@@ -9,10 +9,13 @@ pub const IO_DEADLINE: Duration = Duration::from_secs(10);
 /// Read the original bytes, including duplicate fields, with a hard byte/time cap.
 pub async fn input(reader: impl AsyncRead + Unpin, limit: usize) -> Result<Vec<u8>, ErrorCode> {
     let mut bytes = Vec::new();
-    tokio::time::timeout(IO_DEADLINE, reader.take(limit as u64 + 1).read_to_end(&mut bytes))
-        .await
-        .map_err(|_| ErrorCode::Unavailable)?
-        .map_err(|_| ErrorCode::Unavailable)?;
+    tokio::time::timeout(
+        IO_DEADLINE,
+        reader.take(limit as u64 + 1).read_to_end(&mut bytes),
+    )
+    .await
+    .map_err(|_| ErrorCode::Unavailable)?
+    .map_err(|_| ErrorCode::Unavailable)?;
     if bytes.len() > limit {
         return Err(ErrorCode::Capacity);
     }
@@ -41,7 +44,9 @@ pub async fn output(writer: &mut (impl AsyncWrite + Unpin), value: &Output) -> s
     tokio::time::timeout(IO_DEADLINE, async {
         writer.write_all(&bytes).await?;
         writer.flush().await
-    }).await.map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))?
+    })
+    .await
+    .map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))?
 }
 
 /// Import an existing capability from an inherited private pipe. The descriptor
@@ -50,11 +55,16 @@ pub async fn output(writer: &mut (impl AsyncWrite + Unpin), value: &Output) -> s
 /// runtime descriptor. Nonblocking mode prevents waiting inside open/read.
 #[cfg(unix)]
 pub async fn capability(fd: u32) -> Result<ClientToken, ErrorCode> {
-    use std::{fs::OpenOptions, io::Read, os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt}};
+    use std::{
+        fs::OpenOptions,
+        io::Read,
+        os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt},
+    };
     if fd < 3 {
         return Err(ErrorCode::Unauthorized);
     }
-    let file = OpenOptions::new().read(true)
+    let file = OpenOptions::new()
+        .read(true)
         .custom_flags(rustix::fs::OFlags::NONBLOCK.bits() as i32)
         .open(format!("/dev/fd/{fd}"))
         .map_err(|_| ErrorCode::Unauthorized)?;
@@ -76,14 +86,18 @@ pub async fn capability(fd: u32) -> Result<ClientToken, ErrorCode> {
                 Ok(Ok(count)) => {
                     bytes.extend_from_slice(&buffer[..count]);
                     zeroize::Zeroize::zeroize(&mut buffer);
-                    if bytes.len() > 43 { return Err(ErrorCode::Unauthorized); }
+                    if bytes.len() > 43 {
+                        return Err(ErrorCode::Unauthorized);
+                    }
                 }
                 Ok(Err(_)) => return Err(ErrorCode::Unavailable),
                 Err(_) => continue,
             }
         }
     };
-    tokio::time::timeout(IO_DEADLINE, read).await.map_err(|_| ErrorCode::Unavailable)?
+    tokio::time::timeout(IO_DEADLINE, read)
+        .await
+        .map_err(|_| ErrorCode::Unavailable)?
 }
 
 #[cfg(not(unix))]
