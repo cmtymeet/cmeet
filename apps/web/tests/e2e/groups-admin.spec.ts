@@ -40,6 +40,7 @@ test('groups, devices, admin schema and root', async ({ page }) => {
   // The admin schema editor reorders questions and previews the member view.
   await page.getByRole('link', { name: 'Schema' }).click();
   await expect(page.getByRole('heading', { name: 'Profile schema' })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign in as admin' }).click();
   await expect(page.getByRole('heading', { name: 'Live preview' })).toBeVisible();
   const firstQuestion = await page.locator('.schema-row').first().textContent();
   await page.locator('.schema-row').first().getByRole('button', { name: '↓' }).click();
@@ -51,6 +52,7 @@ test('groups, devices, admin schema and root', async ({ page }) => {
   // Root selects a community without touching members.
   await page.getByRole('link', { name: 'Root' }).click();
   await expect(page.getByRole('heading', { name: 'Communities' })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign in as root' }).click();
   await page.getByRole('button', { name: 'Select' }).first().click();
   await expect(page.getByRole('button', { name: 'Selected' })).toBeVisible();
 });

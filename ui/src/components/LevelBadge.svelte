@@ -2,12 +2,12 @@
   import type { GroupLevel } from '../../../core/src/cmsg.js';
   interface Props {
     level: GroupLevel;
-    labels?: Record<GroupLevel, string>;
+    labels?: Partial<Record<GroupLevel, string>>;
   }
-  let { level, labels = { circle: 'Circle', ingroup: 'Ingroup', room: 'Public room' } }: Props = $props();
+  let { level, labels = { circle: 'Circle', ingroup: 'Ingroup', room: 'Public room', opening: 'Opening room' } }: Props = $props();
 </script>
 
-<span class="badge badge-{level}">{labels[level]}</span>
+<span class="badge badge-{level}">{labels[level] ?? 'Opening room'}</span>
 
 <style>
   .badge {

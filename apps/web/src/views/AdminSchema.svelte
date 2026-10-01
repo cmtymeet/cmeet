@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import type { CmsgClient, ProfileSchema, SchemaField } from '../../../../core/src/cmsg.js';
   import { Button, TextField, Notice, ProfilePreview } from '../../../../ui/src/index.js';
   import { en } from '../../../../ui/src/i18n/en.js';
@@ -16,12 +15,17 @@
 
   const sample = { age: 34, neighbourhood: 'North', weekend: 'Hiking', lookingFor: 'Friendship', about: 'Hello.' };
 
-  onMount(() => {
-    void client
-      .adminSchema()
-      .then((s) => (schema = s))
-      .catch((e: Error) => (error = e.message));
-  });
+  let busy = $state(false);
+  async function signIn() {
+    if (busy) return;
+    busy = true;
+    error = '';
+    try {
+      await client.signInRole('admin');
+      schema = await client.adminSchema();
+    } catch (e) { error = e instanceof Error ? e.message : 'Sign-in did not work.'; }
+    finally { busy = false; }
+  }
 
   function move(key: string, direction: -1 | 1) {
     if (!schema) return;
@@ -69,6 +73,7 @@
   <p class="muted">Drag questions to order them, or use the move buttons. The preview on the right always shows the member view: public front, private back.</p>
   {#if error}<Notice tone="error">{error}</Notice>{/if}
   {#if impact}<Notice tone="info">{impact}</Notice>{/if}
+  {#if !schema}<Button {busy} onclick={() => void signIn()}>Sign in as admin</Button>{/if}
   {#if schema}
     <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));">
       <div>
@@ -117,7 +122,7 @@
         <ProfilePreview {schema} values={sample} frontLabel={en.profile.previewFront} backLabel={en.profile.previewBack} />
       </div>
     </div>
-  {:else if !error}
+  {:else if busy}
     <p aria-live="polite">{en.common.loading}</p>
   {/if}
 </section>

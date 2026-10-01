@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import type { CmsgClient, RootCommunity } from '../../../../core/src/cmsg.js';
-  import { Notice } from '../../../../ui/src/index.js';
+  import { Notice, Button } from '../../../../ui/src/index.js';
   import { en } from '../../../../ui/src/i18n/en.js';
 
   interface Props {
@@ -13,21 +12,26 @@
   let selected: string | null = $state(null);
   let error = $state('');
 
-  onMount(() => {
-    void client
-      .rootCommunities()
-      .then((list) => {
-        communities = list;
-        selected = list[0]?.communityId ?? null;
-      })
-      .catch((e: Error) => (error = e.message));
-  });
+  let signedIn = $state(false);
+  let busy = $state(false);
+  async function signIn() {
+    if (busy) return;
+    busy = true; error = '';
+    try {
+      await client.signInRole('root');
+      communities = await client.rootCommunities();
+      selected = communities[0]?.communityId ?? null;
+      signedIn = true;
+    } catch (e) { error = e instanceof Error ? e.message : 'Sign-in did not work.'; }
+    finally { busy = false; }
+  }
 </script>
 
 <section class="page" aria-labelledby="root-title">
   <h1 id="root-title">{en.root.title}</h1>
-  <p class="muted">Godmode selects a community and may override admins. It acts on settings and admins, never on members. Admin and root calls travel through cmsg and Foyer.</p>
+  <p class="muted">Select a community to manage its settings and admins. Sign in with your passkey to enter this portal.</p>
   {#if error}<Notice tone="error">{error}</Notice>{/if}
+  {#if !signedIn}<Button {busy} onclick={() => void signIn()}>Sign in as root</Button>{/if}
   <ul class="gate-list">
     {#each communities as community (community.communityId)}
       <li>

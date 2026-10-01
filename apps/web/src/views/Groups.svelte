@@ -42,7 +42,7 @@
 
   async function join(id: string) {
     try {
-      await client.joinGroup(id);
+      await client.joinGroup(id, consentChecked);
       pendingJoin = null;
       await load();
       window.location.hash = `#/groups/${encodeURIComponent(id)}`;

@@ -5,8 +5,8 @@
  * no keys and no crypto: it is one interface with typed requests, responses
  * and events, derived from CFRM-CMSG-CONTRACTS (cmsg member door).
  *
- * The real generated client replaces the development adapter later without
- * changing components: both implement {@link CmsgClient}.
+ * This handwritten interface is provisional. Reconcile it with the generated
+ * cmsg API registry and adjust consumers before production integration.
  *
  * Families mirror the contract: connection preload, lobby/gates, profiles and
  * schema, forum discovery, key exchange, waves, contacts, threads, groups and
@@ -53,6 +53,8 @@ export interface GateStep {
   label: string;
   detail: string;
   state: 'complete' | 'action-needed' | 'waiting';
+  /** Optional typed input the screen collects and sends via completeGate. */
+  action?: { label: string; inputLabel?: string };
 }
 
 export interface LobbyState {
@@ -111,7 +113,13 @@ export interface ProfileSchema {
   fields: SchemaField[];
 }
 
-export type ProfileValues = Record<string, string | number | boolean>;
+export type ProfileValues = Record<string, string | number | boolean | LocationValue>;
+
+/** Typed location value. Distance is measured by cmsg from the own profile. */
+export interface LocationValue {
+  latitude: number;
+  longitude: number;
+}
 
 export interface OwnProfile {
   values: ProfileValues;
@@ -122,10 +130,12 @@ export interface OwnProfile {
 /** A personal two-way rule: values the other member must satisfy. */
 export interface MatchRule {
   field: string;
-  /** Exact values (choice) or { min, max } (number). */
-  equals?: (string | number)[];
+  /** Exact values (choice/yes-no) or { min, max } (number). */
+  equals?: (string | number | boolean)[];
   min?: number;
   max?: number;
+  /** Location distance in km, measured by cmsg from the own profile. */
+  maxDistanceKm?: number;
 }
 
 export interface ValidationIssue {
@@ -145,9 +155,11 @@ export interface PublishProfileResult {
 
 export interface DiscoveryFilter {
   field: string;
-  equals?: (string | number)[];
+  equals?: (string | number | boolean)[];
   min?: number;
   max?: number;
+  /** Location distance in km, measured by cmsg from the own profile. */
+  maxDistanceKm?: number;
 }
 
 export interface PublicCard {
@@ -172,6 +184,16 @@ export interface KeyRequestResult {
   failingField?: string;
   /** Owner sees the full reason. Present only for the owner side. */
   reason?: string;
+  /** Accepted peer profile for display. Never a raw key. */
+  profile?: { schema: ProfileSchema; values: ProfileValues };
+}
+
+export interface ProfileExchange {
+  id: string;
+  peer: MemberId;
+  handle: Handle;
+  direction: 'incoming' | 'outgoing';
+  result: KeyRequestResult;
 }
 
 /* ------------------------------------------------------------------ */
@@ -195,6 +217,9 @@ export interface Wave {
   /** Slots still reserved while waiting. */
   senderSlotHeld: boolean;
   recipientSlotHeld: boolean;
+  /** Reserved content is never shown by the UI. */
+  releaseState?: 'reserved' | 'released';
+  reason?: string;
 }
 
 export interface WaveSlots {
@@ -245,13 +270,22 @@ export interface Thread {
   messages: ChatMessage[];
   /** Unmetered once established. */
   established: boolean;
+  state?: 'active' | 'closed' | 'blocked' | 'reopen-pending';
 }
 
 /* ------------------------------------------------------------------ */
 /* Groups (circle / ingroup / public room)                             */
 /* ------------------------------------------------------------------ */
 
-export type GroupLevel = 'circle' | 'ingroup' | 'room';
+export type GroupLevel = 'circle' | 'ingroup' | 'room' | 'opening';
+
+export interface ForkView {
+  id: string;
+  label: string;
+  detail: string;
+  proposedRoster: string[];
+  consented: boolean;
+}
 
 export interface GroupView {
   id: string;
@@ -268,13 +302,23 @@ export interface GroupView {
   messages: ChatMessage[];
   /** Device suggestions: split/merge banners, never forced moves. */
   suggestion: string | null;
+  /** Opaque display data; UI never computes bands or transitions. */
+  band?: { notifications: string; postingPace: string; joining: string };
+  opening?: { progress: string; deadlineLabel: string };
+  lineage?: string[];
+  seatBudget?: { enabled: boolean; label: string };
+  welcomePrompt?: string;
+  members?: { id: string; handle: string }[];
+  forks?: ForkView[];
 }
 
 export interface GroupForkProposal {
   groupId: string;
-  kind: 'exit' | 'split' | 'merge' | 'open';
+  kind: 'exit' | 'split' | 'merge' | 'open' | 'add' | 'exclusion';
   label: string;
   detail: string;
+  memberIds?: string[];
+  targetGroupId?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -286,6 +330,12 @@ export interface DeviceInfo {
   name: string;
   thisDevice: boolean;
   addedAt: number;
+  state?: 'pending' | 'active';
+}
+
+export interface RestoreView {
+  state: 'ready' | 'unavailable' | 'unrecoverable' | 'locked';
+  message: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -301,6 +351,27 @@ export interface SchemaImpact {
 export interface RootCommunity {
   communityId: string;
   displayName: string;
+}
+
+export interface RootSetting {
+  key: string;
+  label: string;
+  effectiveValue: string;
+  overrideValue: string | null;
+  inherited: boolean;
+  editable: boolean;
+  help: string;
+}
+
+export interface RootAdmin {
+  id: string;
+  label: string;
+}
+
+export interface RootCommunityView {
+  communityId: string;
+  settings: RootSetting[];
+  admins: RootAdmin[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -337,6 +408,7 @@ export interface CmsgClient {
   joinWithVoucher(request: JoinWithVoucherRequest): Promise<JoinWithVoucherResult>;
   lobby(): Promise<LobbyState>;
   signIn(): Promise<JoinWithVoucherResult>;
+  completeGate(id: string, input: string): Promise<LobbyState>;
 
   /* Schema and profile */
   schema(): Promise<ProfileSchema>;
@@ -349,6 +421,7 @@ export interface CmsgClient {
   /* Forum */
   discover(filters: DiscoveryFilter[], cursor?: string | null): Promise<MatchPage>;
   requestPrivateKey(peer: MemberId): Promise<KeyRequestResult>;
+  profileExchanges(): Promise<ProfileExchange[]>;
 
   /* Waves */
   waveSlots(): Promise<WaveSlots>;
@@ -367,12 +440,18 @@ export interface CmsgClient {
   threads(): Promise<Thread[]>;
   thread(peer: MemberId): Promise<Thread>;
   sendMessage(peer: MemberId, text: string): Promise<ChatMessage>;
+  closeConversation(peer: MemberId): Promise<void>;
+  punishConversation(peer: MemberId): Promise<void>;
+  requestReopen(peer: MemberId): Promise<void>;
 
   /* Groups */
   groups(): Promise<GroupView[]>;
-  joinGroup(id: string): Promise<GroupView>;
+  joinGroup(id: string, consent?: boolean): Promise<GroupView>;
   leaveGroup(id: string): Promise<void>;
   proposeFork(proposal: GroupForkProposal): Promise<GroupView>;
+  consentFork(groupId: string, forkId: string): Promise<GroupView>;
+  welcomeMember(groupId: string): Promise<string>;
+  dismissGroupSuggestion(groupId: string): Promise<void>;
   sendGroupMessage(id: string, text: string): Promise<ChatMessage>;
 
   /* Devices */
@@ -380,11 +459,22 @@ export interface CmsgClient {
   addDevice(name: string): Promise<DeviceInfo>;
   approveDevice(id: string): Promise<DeviceInfo>;
   removeDevice(id: string): Promise<void>;
+  renameDevice(id: string, name: string): Promise<void>;
+  restoreVault(): Promise<RestoreView>;
 
   /* Admin (community scope) */
+  signInRole(role: 'admin' | 'root'): Promise<void>;
   adminSchema(): Promise<ProfileSchema>;
   adminSaveSchema(schema: ProfileSchema): Promise<SchemaImpact>;
 
   /* Root (platform scope) */
   rootCommunities(): Promise<RootCommunity[]>;
+  rootCommunity(id: string): Promise<RootCommunityView>;
+  rootSetSetting(
+    id: string,
+    key: string,
+    mode: 'inherit' | 'empty' | 'value',
+    value?: string,
+  ): Promise<RootCommunityView>;
+  rootSetAdmin(id: string, adminId: string, enabled: boolean): Promise<RootCommunityView>;
 }
