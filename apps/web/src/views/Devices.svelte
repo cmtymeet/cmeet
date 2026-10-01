@@ -1,75 +1,98 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { CmsgClient, DeviceInfo } from '../../../../core/src/cmsg.js';
-  import { Button, TextField, Notice } from '../../../../ui/src/index.js';
-  import { en } from '../../../../ui/src/i18n/en.js';
-
-  interface Props {
-    client: CmsgClient;
-  }
-  let { client }: Props = $props();
-
+  import type { CmsgClient, DeviceInfo, RestoreView } from '../../../../core/src/cmsg.js';
+  import { Button, TextField, Notice, Dialog } from '../../../../ui/src/index.js';
+  import { devicesStrings as s } from '../strings/devices.js';
+  let { client }: { client: CmsgClient } = $props();
   let devices: DeviceInfo[] = $state([]);
-  let name = $state('');
-  let error = $state('');
-  let note = $state('');
+  let loaded = $state(false), busy = $state(false);
+  let name = $state(''), error = $state(''), note = $state('');
+  let editing = $state(''), rename = $state('');
+  let confirmation: { device: DeviceInfo; action: 'approve' | 'remove' } | null = $state(null);
+  let restore: RestoreView | null = $state(null);
+  let alive = true;
+  let errorRegion: HTMLDivElement | undefined = $state();
+  $effect(() => { if (error) errorRegion?.focus(); });
 
   async function load() {
-    try {
-      devices = await client.devices();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Devices are unavailable right now.';
-    }
+    error = '';
+    try { const next = await client.devices(); if (alive) { devices = next; loaded = true; } }
+    catch (e) { if (alive) error = e instanceof Error ? e.message : s.failed; }
   }
-
   onMount(() => {
     void load();
-    return client.subscribe((event) => {
-      if (event.type === 'devices') devices = event.devices;
-    });
+    const stop = client.subscribe(e => { if (e.type === 'devices' && alive) devices = e.devices; });
+    return () => { alive = false; stop(); };
   });
-
-  async function add() {
-    error = '';
-    note = '';
-    try {
-      const pending = await client.addDevice(name);
-      // In real use another live device approves. Here the member approves
-      // their own second device to keep the flow testable.
-      await client.approveDevice(pending.id);
-      name = '';
-      note = 'Device added. Keep a synced passkey or a second device so you can return.';
-      await load();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Adding the device did not work.';
-    }
+  async function act(action: () => Promise<void>) {
+    if (busy) return;
+    busy = true; error = ''; note = '';
+    try { await action(); }
+    catch (e) { if (alive) error = e instanceof Error ? e.message : s.failed; }
+    finally { if (alive) busy = false; }
   }
-
-  async function remove(id: string) {
-    try {
-      await client.removeDevice(id);
-      await load();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Removing the device did not work.';
-    }
+  async function add() {
+    await client.addDevice(name);
+    if (alive) { name = ''; note = s.added; }
+  }
+  async function confirm() {
+    if (!confirmation) return;
+    const { device, action } = confirmation;
+    if (action === 'approve') await client.approveDevice(device.id);
+    else await client.removeDevice(device.id);
+    if (alive) confirmation = null;
   }
 </script>
-
 <section class="page" aria-labelledby="devices-title">
-  <h1 id="devices-title">{en.devices.title}</h1>
-  <p class="muted">New devices join only with approval from a live device. Removing one rotates keys. Names live only in your encrypted vault.</p>
-  {#if error}<Notice tone="error">{error}</Notice>{/if}
+  <h1 id="devices-title">{s.title}</h1>
+  <p>{s.lead}</p><p class="muted">{s.loss}</p>
+  {#if error}<div bind:this={errorRegion} tabindex="-1"><Notice tone="error">{error}</Notice></div>{/if}
   {#if note}<Notice tone="success">{note}</Notice>{/if}
+  {#if !loaded && !error}<p role="status">{s.loading}</p>{/if}
+  {#if !loaded && error}<Button onclick={() => void load()}>{s.retry}</Button>{/if}
+  {#if loaded && devices.length === 0}<p>{s.empty}</p>{/if}
   <ul class="gate-list">
     {#each devices as device (device.id)}
       <li>
-        <span>{device.name}{#if device.thisDevice} (this device){/if}</span>
-        {#if !device.thisDevice}<Button onclick={() => void remove(device.id)}>{en.lobby.remove}</Button>{/if}
+        <div><strong>{device.name}</strong> {#if device.thisDevice}{s.current}{/if}
+          <p>{device.state === 'pending' ? s.pending : s.active}</p>
+        </div>
+        {#if editing === device.id}
+          <form onsubmit={(e) => { e.preventDefault(); void act(async () => { await client.renameDevice(device.id, rename); if (alive) editing = ''; }); }}>
+            <TextField id={`rename-${device.id}`} label={s.name} value={rename} oninput={v => rename = v} />
+            <Button type="submit" disabled={busy}>{s.save}</Button>
+            <Button disabled={busy} onclick={() => editing = ''}>{s.cancel}</Button>
+          </form>
+        {:else}
+          <div class="row">
+            <Button disabled={busy} onclick={() => { editing = device.id; rename = device.name; }}>{s.rename}</Button>
+            {#if device.state === 'pending'}<Button disabled={busy} onclick={() => confirmation = { device, action: 'approve' }}>{s.approve}</Button>{/if}
+            {#if !device.thisDevice}<Button disabled={busy} onclick={() => confirmation = { device, action: 'remove' }}>{s.remove}</Button>{/if}
+          </div>
+        {/if}
       </li>
     {/each}
   </ul>
-  <form onsubmit={(e) => { e.preventDefault(); void add(); }}>
-    <TextField id="device-name" label="Device name" value={name} placeholder="For example: spare phone" oninput={(v) => (name = v)} />
-    <Button type="submit" variant="primary">{en.devices.add}</Button>
+  <form onsubmit={e => { e.preventDefault(); void act(add); }}>
+    <TextField id="device-name" label={s.name} value={name} oninput={v => name = v} />
+    <Button type="submit" variant="primary" {busy}>{s.add}</Button>
   </form>
+  <p><Button disabled={busy} onclick={() => void act(async () => { const result = await client.restoreVault(); if (alive) restore = result; })}>{s.restore}</Button></p>
+  {#if restore}
+    <section aria-labelledby="recovery-title"><h2 id="recovery-title">{s.restoreTitle}</h2>
+      <Notice tone={restore.state === 'ready' ? 'success' : 'warning'}><strong>{s.restoreStates[restore.state]}</strong><p>{restore.message}</p></Notice>
+    </section>
+  {/if}
+  {#if confirmation}
+    <Dialog open labelledBy="device-confirm-title" onclose={() => { if (!busy) confirmation = null; }}>
+      <h2 id="device-confirm-title">{confirmation.action === 'approve' ? s.pairingTitle : s.removeTitle}</h2>
+      <p><strong>{confirmation.device.name}</strong></p>
+      <p>{confirmation.action === 'approve' ? s.pairingHelp : s.removeHelp}</p>
+      {#if error}<Notice tone="error">{error}</Notice>{/if}
+      <div class="row">
+        <Button disabled={busy} onclick={() => confirmation = null}>{s.cancel}</Button>
+        <Button {busy} variant={confirmation.action === 'approve' ? 'primary' : 'danger'} onclick={() => void act(confirm)}>{confirmation.action === 'approve' ? s.confirmApprove : s.confirmRemove}</Button>
+      </div>
+    </Dialog>
+  {/if}
 </section>
