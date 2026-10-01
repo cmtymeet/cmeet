@@ -22,7 +22,7 @@ export const profileStrings = {
   longitudeLabel: 'Longitude',
   locationHelp: 'Enter latitude and longitude explicitly. No map lookup is used.',
   distanceSuffix: '(within km)',
-  distanceHelp: 'Maximum distance in kilometres. The app never calculates distance itself.',
+  distanceHelp: 'Maximum distance in kilometres from your profile location.',
   previewTitle: 'Preview',
   previewFront: 'Front: public profile',
   previewBack: 'Back: private profile',
@@ -34,7 +34,7 @@ export const profileStrings = {
   statusDraft: 'Not yet published.',
   statusPublishedPrefix: 'Published, revision ',
   newProfileNote:
-    'New profile: answers start empty. A blank number stays blank, never 0; an unanswered yes/no stays unanswered, never No.',
+    'Answer the community questions in your own words. Required questions are marked.',
 } as const;
 
 export type ProfileStrings = typeof profileStrings;

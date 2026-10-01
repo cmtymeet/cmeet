@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import type { CmsgClient, MatchRule, ProfileSchema, ProfileValues } from '../../../../core/src/cmsg.js';
+  import type { CmsgClient, LocationValue, MatchRule, ProfileSchema, ProfileValues } from '../../../../core/src/cmsg.js';
   import { Button, TextField, Notice, ProfilePreview } from '../../../../ui/src/index.js';
   import { profileStrings } from '../strings/profile.js';
 
@@ -9,23 +9,9 @@
   }
   let { client }: Props = $props();
 
-  // Forward-compatible shapes from PORT-CONTRACT: a location answer is an
-  // explicit { latitude, longitude } pair, a location rule carries only a
-  // collected maxDistanceKm, and yes/no rule equality may hold booleans.
-  // The UI collects these typed inputs and never computes with them.
-  interface LocationValue {
-    latitude: number;
-    longitude: number;
-  }
-  type FormValues = Record<string, string | number | boolean | LocationValue>;
-  type RuleEx = Omit<MatchRule, 'equals'> & {
-    equals?: (string | number | boolean)[];
-    maxDistanceKm?: number;
-  };
-
   let schema: ProfileSchema | null = $state(null);
-  let values: FormValues = $state({});
-  let rules: RuleEx[] = $state([]);
+  let values: ProfileValues = $state({});
+  let rules: MatchRule[] = $state([]);
   // Raw drafts preserve what the member typed: a cleared number input stays
   // cleared (absent) instead of collapsing to 0, and half-typed locations
   // survive until both halves parse.
@@ -45,7 +31,7 @@
     return typeof pair.latitude === 'number' && typeof pair.longitude === 'number';
   }
 
-  function hasConstraint(rule: RuleEx): boolean {
+  function hasConstraint(rule: MatchRule): boolean {
     return (
       (rule.equals?.length ?? 0) > 0 ||
       rule.min !== undefined ||
@@ -55,14 +41,16 @@
   }
 
   onMount(() => {
+    let alive = true;
     void (async () => {
       try {
-        schema = await client.schema();
-        const profile = await client.ownProfile();
-        values = { ...(profile.values as unknown as FormValues) };
+        const [nextSchema, profile, nextRules] = await Promise.all([client.schema(), client.ownProfile(), client.ownRules()]);
+        if (!alive) return;
+        schema = nextSchema;
+        values = { ...(profile.values) };
         published = profile.published;
         revision = profile.revision;
-        rules = [...((await client.ownRules()) as unknown as RuleEx[])];
+        rules = nextRules;
         for (const field of schema.fields) {
           if (field.kind === 'number') {
             const current = values[field.key];
@@ -76,9 +64,10 @@
           }
         }
       } catch (e) {
-        error = e instanceof Error ? e.message : profileStrings.loadFailed;
+        if (alive) error = e instanceof Error ? e.message : profileStrings.loadFailed;
       }
     })();
+    return () => { alive = false; };
   });
 
   function parseOptionalNumber(raw: string): number | undefined {
@@ -129,8 +118,8 @@
     locationDrafts = { ...locationDrafts, [key]: next };
     const latitude = Number(next.lat.trim());
     const longitude = Number(next.lon.trim());
-    if (next.lat.trim() !== '' && next.lon.trim() !== '' && Number.isFinite(latitude) && Number.isFinite(longitude)) {
-      values = { ...values, [key]: { latitude, longitude } };
+    if (next.lat.trim() !== '' || next.lon.trim() !== '') {
+      values = { ...values, [key]: { latitude: next.lat.trim() === '' ? Number.NaN : latitude, longitude: next.lon.trim() === '' ? Number.NaN : longitude } };
     } else {
       const rest = { ...values };
       delete rest[key];
@@ -150,11 +139,11 @@
     return field.visibility === 'private' ? profileStrings.privateHelp : profileStrings.publicHelp;
   }
 
-  function ruleFor(field: string): RuleEx {
+  function ruleFor(field: string): MatchRule {
     return rules.find((rule) => rule.field === field) ?? { field };
   }
 
-  function setRule(field: string, patch: Partial<RuleEx>) {
+  function setRule(field: string, patch: Partial<MatchRule>) {
     const next = { ...ruleFor(field), ...patch };
     const rest = rules.filter((rule) => rule.field !== field);
     rules = hasConstraint(next) ? [...rest, next] : rest;
@@ -170,7 +159,7 @@
   }
 
   function setRuleBound(field: string, bound: 'min' | 'max', raw: string) {
-    setRule(field, { [bound]: parseOptionalNumber(raw) } as Partial<RuleEx>);
+    setRule(field, { [bound]: parseOptionalNumber(raw) } as Partial<MatchRule>);
   }
 
   function setRuleYesNo(field: string, raw: string) {
@@ -199,14 +188,14 @@
   }
 
   async function save() {
+    if (!schema || busy) return;
     error = '';
     fieldErrors = {};
     saved = false;
-    if (!schema) return;
     busy = true;
     try {
       // Validation belongs to cmsg alone: collect typed inputs, then ask.
-      const snapshot = { ...values } as unknown as ProfileValues;
+      const snapshot = $state.snapshot(values);
       const issues = await client.validateProfile(snapshot);
       if (issues.length > 0) {
         const mapped: Record<string, string> = {};
@@ -216,18 +205,19 @@
           issues.length === 1
             ? (issues[0]?.message ?? profileStrings.validationSummary)
             : `${profileStrings.validationSummary} (${issues.length})`;
+        busy = false;
         await tick();
         if (issues[0]) focusField(issues[0].field);
         return;
       }
-      const ruleSnapshot = rules.filter(hasConstraint).map((rule) => ({ ...rule })) as unknown as MatchRule[];
+      const ruleSnapshot = $state.snapshot(rules.filter(hasConstraint));
       await client.saveRules(ruleSnapshot);
       // A failed publish keeps the last valid form state; only a returned
       // profile marks the form published.
       const result = await client.publishProfile(snapshot);
       published = result.profile.published;
       revision = result.profile.revision;
-      values = { ...(result.profile.values as unknown as FormValues) };
+      values = { ...(result.profile.values) };
       saved = true;
       fieldErrors = {};
       error = '';
@@ -269,7 +259,8 @@
   {#if saved}<Notice tone="success">{profileStrings.publishedOk}</Notice>{/if}
   {#if schema}
     <div class="grid">
-      <form onsubmit={(e) => { e.preventDefault(); void save(); }} aria-label={profileStrings.formLabel}>
+      <form novalidate onsubmit={(e) => { e.preventDefault(); void save(); }} aria-label={profileStrings.formLabel}>
+        <fieldset class="profile-fields" disabled={busy}>
         {#each schema.fields as field}
           {#if field.kind === 'choice'}
             <TextField
@@ -400,6 +391,7 @@
         <div class="row">
           <Button type="submit" variant="primary" {busy} busyLabel={profileStrings.saving}>{profileStrings.save}</Button>
         </div>
+        </fieldset>
       </form>
       <div>
         <h2>{profileStrings.previewTitle}</h2>
@@ -417,6 +409,7 @@
 </section>
 
 <style>
+  .profile-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
   .loc {
     border: 1px solid var(--cmeet-line);
     border-radius: var(--cmeet-radius);

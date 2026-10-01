@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mount, unmount } from 'svelte';
+import { mount, tick, unmount } from 'svelte';
 import ProfileEditor from '../../src/views/ProfileEditor.svelte';
-import { createDevCmsg } from '../../../core/src/dev-adapter.js';
-import type { CmsgClient, ProfileSchema } from '../../../core/src/cmsg.js';
+import { createDevCmsg } from '../../../../core/src/dev-adapter.js';
+import type { CmsgClient, ProfileSchema } from '../../../../core/src/cmsg.js';
 
 // Tests mount the real ProfileEditor against the real development adapter.
 // Only the adapter boundary is wrapped: extra schema kinds and injected
@@ -74,7 +74,9 @@ async function clientWithAllKinds(): Promise<CmsgClient> {
       filterable: false,
     },
   );
-  return { ...base, schema: async () => structuredClone(extended) };
+  await base.signInRole('admin');
+  await base.adminSaveSchema(extended);
+  return base;
 }
 
 describe('profile editor with every schema kind', () => {
@@ -218,6 +220,7 @@ describe('profile editor with every schema kind', () => {
       setInput(query<HTMLTextAreaElement>(target, '#profile-about'), 'Quiet hiker.');
       const tabs = target.querySelectorAll('[role="tab"]');
       expect(tabs.length).toBeGreaterThanOrEqual(2);
+      await tick();
       expect(target.textContent).toMatch(/34/);
       expect(target.textContent).not.toMatch(/Quiet hiker/);
       (tabs[1] as HTMLElement).click();
