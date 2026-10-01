@@ -770,8 +770,7 @@ fn write_response<W: Write>(
     response: &impl Serialize,
     max_bytes: usize,
 ) -> io::Result<()> {
-    let bytes = serde_json::to_vec(response)
-        .map_err(|_| io::Error::other("serialization"))?;
+    let bytes = serde_json::to_vec(response).map_err(|_| io::Error::other("serialization"))?;
     if bytes.len() > max_bytes {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "response limit"));
     }

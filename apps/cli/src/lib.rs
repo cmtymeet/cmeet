@@ -46,7 +46,11 @@ pub fn read_bytes(reader: impl Read, max_bytes: u32) -> Result<Vec<u8>, Error> {
 /// to the owning dispatcher; decoding an arbitrary Value would lose duplicate
 /// object fields before the owner can reject them.
 pub fn read_json<T: DeserializeOwned>(reader: impl Read, max_bytes: u32) -> Result<T, Error> {
-    serde_json::from_slice(&read_bytes(reader, max_bytes)?).map_err(|_| Error::InvalidJson)
+    let bytes = read_bytes(reader, max_bytes)?;
+    match serde_json::from_slice(&bytes) {
+        Ok(value) => Ok(value),
+        Err(_) => Err(Error::InvalidJson),
+    }
 }
 
 /// Serialize completely before writing, so a serialization failure cannot emit
