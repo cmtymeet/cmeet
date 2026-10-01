@@ -126,3 +126,15 @@ async fn capability_import_refuses_stdio_closed_descriptors_and_regular_files() 
         ));
     }
 }
+
+#[tokio::test]
+async fn committed_revoke_with_lost_response_is_reconcile_and_never_retried() {
+    let host = Host::lost_response().await;
+    let result = host.invoke(br#"{"action":"client.revoke","version":1,"body":{}}"#, ORIGIN).await;
+    assert_eq!(result.status.code(), Some(i32::from(ErrorCode::Reconcile.exit_code())));
+    assert!(matches!(serde_json::from_slice::<Output>(&result.stdout).unwrap(), Output::Error { error: ErrorCode::Reconcile }));
+    assert_eq!(host.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let result = host.invoke(br#"{"action":"runtime.status","version":1,"body":{}}"#, ORIGIN).await;
+    assert_eq!(result.status.code(), Some(i32::from(ErrorCode::Unauthorized.exit_code())));
+    assert_eq!(host.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+}

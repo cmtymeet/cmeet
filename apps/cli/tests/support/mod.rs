@@ -24,6 +24,8 @@ pub struct Host {
     pub endpoint: String,
     token: cmsg::door::ClientToken,
     task: JoinHandle<()>,
+    #[allow(dead_code)]
+    pub calls: Arc<std::sync::atomic::AtomicUsize>,
 }
 impl Drop for Host {
     fn drop(&mut self) {
@@ -33,7 +35,12 @@ impl Drop for Host {
 impl Host {
     pub async fn new() -> Self { Self::delayed(std::time::Duration::ZERO).await }
 
-    pub async fn delayed(delay: std::time::Duration) -> Self {
+    pub async fn delayed(delay: std::time::Duration) -> Self { Self::configured(delay, false).await }
+
+    #[allow(dead_code)]
+    pub async fn lost_response() -> Self { Self::configured(std::time::Duration::ZERO, true).await }
+
+    async fn configured(delay: std::time::Duration, lose_first: bool) -> Self {
         let config = Configuration::new(
             "test".into(),
             BTreeMap::from([(Role::Member, BTreeSet::from([ORIGIN.into()]))]),
@@ -53,9 +60,19 @@ impl Host {
         let address = listener.local_addr().unwrap();
         let router =
             native::router(door, BTreeSet::from([address.to_string()]), Arc::new(Clock)).unwrap();
-        let router = router.layer(axum::middleware::from_fn(move |request: axum::extract::Request, next: axum::middleware::Next| async move {
-            tokio::time::sleep(delay).await;
-            next.run(request).await
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = calls.clone();
+        let router = router.layer(axum::middleware::from_fn(move |request: axum::extract::Request, next: axum::middleware::Next| {
+            let count = count.clone();
+            async move {
+                let index = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                tokio::time::sleep(delay).await;
+                let response = next.run(request).await;
+                if lose_first && index == 0 {
+                    let (parts, _) = response.into_parts();
+                    axum::response::Response::from_parts(parts, axum::body::Body::empty())
+                } else { response }
+            }
         }));
         let task = tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();
@@ -64,6 +81,7 @@ impl Host {
             endpoint: format!("http://{address}"),
             token,
             task,
+            calls,
         }
     }
 
