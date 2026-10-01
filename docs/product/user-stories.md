@@ -1,6 +1,6 @@
 # User stories
 
-Product requirements recorded on 2026-09-29, with decisions through 2026-09-30.
+Product requirements recorded on 2026-09-29, with decisions through 2026-10-01.
 See the [status legend](README.md#status-legend), [decision register](decisions.md)
 and [open questions](open-questions.md). Decided describes requirements, not
 implementation readiness. Later corrections replace earlier alternatives.
@@ -38,7 +38,7 @@ honestly.
 | Guard, authentication and rate limits treat every endpoint's input as hostile. | Proposed | 2026-09-29 |
 | Documented, versioned, stable API definitions support third-party clients. | Proposed | 2026-09-29 |
 | Service API definitions are the client/server protocol, defined once and used to generate TypeScript clients, CLI commands and MCP tools. There is no separate protocol library. | Decided | 2026-09-29 |
-| Whether member-side facades should change from FSL to LGPL to support free and commercial third-party clients. | Open | 2026-09-30 |
+| Licensing A: server and member facades are FSL; leaves LGPL; cmeet BSL. Third-party clients embed unchanged cmsg and use its local API. Commercial substitutes for cmeet require a licence during FSL’s two-year competing-use restriction. | Decided | 2026-10-01 |
 
 **Decided · 2026-09-30.** Product shells share this BSL repository: Svelte 5 PWA
 in `apps/web`, a Tauri desktop/mobile shell using the same UI in `apps/tauri`,
@@ -46,9 +46,11 @@ and one Rust program in `apps/cli` with `cmeet`, `cmeet tui` and `cmeet mcp`.
 Shared UI and white-label themes belong in `ui/`; `core/` is a thin client layer
 only where two apps need it. `tests/toy` drives many CLI members. The CLI is both
 a product and a test tool. Libraries remain in separate repositories and contain
-no frontend code. Member commands use member libraries; admin/root commands use
-the service action definitions. Service binaries retain serving and operator
-tasks. How the member CLI holds a passkey remains Open.
+no frontend code. **Decided · 2026-10-01:** every frontend, including CLI and
+third-party apps, calls only `cmsg`. Its local API is the official interface,
+with HTTP, MCP and TypeScript generated from one definition. Admin/root commands
+use the admission action definitions through `cmsg → Foyer → cvld`. Service
+binaries retain serving and operator tasks. CLI passkey custody remains Open.
 
 ## 3. Godmode and admin
 
@@ -68,8 +70,9 @@ offer structure and suggestions, never pre-filled personal answers.
 settings and admins rather than member impersonation; require fresh passkey
 confirmation for dangerous actions; separate operator identities; show affected
 admins an action log; reserve operator names and use role badges. These details
-are not all settled by the story. Admin calls go directly to the admission API
-(Decided, 2026-09-29).
+are not all settled by the story. **Decided · 2026-10-01:** admin/root clients
+call the local member API, which forwards through Foyer to admission. The forum
+receives resulting signed settings and never carries those edits.
 
 **Proposed · 2026-09-29.** Keep personal setting overrides only in the member's
 vault, outside operator access/control, and publish the permitted range of
@@ -91,6 +94,13 @@ proof for each community. Communities do not learn which other communities the
 member joins. This platform wallet is a visible boundary to the earlier
 white-label arrival story, not a promise that every authentication page is on
 the customer's domain.
+
+### Connecting before use
+
+**Decided · 2026-10-01.** The app preloads the network connection before members
+can use it. Show connection progress and failure clearly; proceed only when the
+connection stands. With Tor this includes bootstrap and onion publication. The
+member should not need to understand or operate networking infrastructure.
 
 ### Registration and the lobby
 
@@ -157,7 +167,10 @@ cold keys and waiting delays were rejected as the general access model.
 passkey. Restoring the encrypted vault from distributed records using a surviving
 passkey is allowed. Losing all passkeys is permanent loss, with no return to the
 community. Members should keep a synced passkey or several registered devices.
-The availability of distributed vault records still needs verification.
+**Decided · 2026-10-01:** the passkey PRF derives the vault location and key;
+restore fetches sealed records from the DHT population in either network backend.
+The operator stores no vault backup. Record availability under churn still needs
+measurement; an unavailable record must not silently create a new identity.
 
 **Decided · 2026-09-30.** Admission services retain no login dates, last-used
 dates, request logs or raw gate data. Device-local last-used information is
@@ -198,8 +211,8 @@ values. Real numeric values are used, such as age 34; only rules use ranges.
 Restricted fields have change limits enforced by hiding pins, without storing
 their values in admission services. Public-field hiding/removal takes effect
 immediately; loosening needs no member action; private-only changes are checked
-on devices. For tightening, the operator chooses strict enforcement or
-grandfathering for small changes; what counts as small remains Open.
+on devices. **Decided · 2026-10-01:** enforce the current schema strictly until
+grandfathering exists. The later small-change boundary remains Open.
 
 The product uses nested canonical and API domains behind custom domains. TLS
 scaling, customer-domain certificates and abuse containment are recorded in the
@@ -256,15 +269,14 @@ the forum. Perfect simultaneous exchange is not promised: the requester gives
 first, and the honest client completes an allowed exchange.
 
 Anna is notified about every acceptance and rejection. On acceptance she keeps
-Tom's key for look-back. On rejection, her client discarding Tom's key is
-Proposed. Anna sees the full failed-rule reason. Tom learns only the field
+Tom's key for look-back. On rejection, her client discards Tom's key
+(Decided, 2026-10-01). Anna sees the full failed-rule reason. Tom learns only the field
 responsible, such as age, never Anna's rule or its values. Stable fields' change
 limits and pins reduce gaming.
 
-**Proposed · 2026-09-29.** Each match could include a short-lived signed match
-token, required by every client's key request. Anna's device would verify it and
-recheck the pair before releasing the key. This would limit ordinary rejections
-to races such as changed rules, profile or schema. The token design remains Open.
+**Decided · 2026-10-01.** Match tokens are omitted from the MVP, with their
+format reserved. Current reciprocal checks still govern profile access and
+key release. A later signed-token mechanism and its lifetime remain Open.
 
 Seeing existing contacts come online is important, but the contact graph and
 contact-presence information must not live in the forum. Peer-to-peer presence
@@ -312,71 +324,89 @@ accepted, declined and punished sent first contacts, if verifiable. It never
 shows absolute counts and appears only after a minimum quorum. The quorum value
 is an Open platform setting. This replaces the earlier absolute-count display.
 
-**Proposed · 2026-09-29.** Signed outcome receipts and zero-knowledge balances
-could make outcomes and punishment tamper-resistant without disclosing the
-counterpart. Counter changes can still reveal that some interaction ended.
-For established conversations, each participant could lose one introduction
-from their current balance, with punishment included in the public record.
-Punishment at zero balance could charge the next refill. Keep one introduction
-unit rather than a separate disapproval balance. These mechanics remain Open;
-proof-dependent punishment, record and change-token operations were still
-disabled in the 2026-09-30 source snapshot pending real proof validation.
+**Decided · 2026-10-01.** Use the balance stack’s punishment and debt mechanics.
+In established conversations the cost is one introduction per party, with debt
+consumed before refill at zero balance. Signed receipts and zero-knowledge
+proofs must preserve counterpart privacy. Counter changes can reveal that an
+interaction ended. Proof-backed service integration and private settlement
+remain acceptance requirements, not claims of product readiness.
 
-**Decided · 2026-09-29/30.** The initial experience is online-only; going offline
-ends live chats as well as discovery. Later Veilid delivery may allow writing
-to existing contacts while they are away, with messages held in the sender's
-vault until delivery. First contacts remain live. Offline work is a limited
-extension, not a major product investment.
+**Decided · 2026-10-01.** Offline messages and vault restore rest on the DHT
+population. Existing contacts can exchange encrypted messages without being
+online together, subject to records remaining available. The app distinguishes
+queued, stored and received messages; storing a record is not a recipient’s
+acknowledgement. First contacts remain live. Going offline removes forum
+presence and ends the live session, while encrypted history and pending messages
+remain. This supersedes the earlier online-only MVP restriction.
 
-## 7. Groups
+There are two full network backends. Veilid is the primary network in the making;
+Tor carries launch and remains a fully established backup. Devices participate
+while the app is in use, with DHT capability on by default; members manage no
+always-on infrastructure. The operator stores no DHT records. Records follow
+Veilid’s formats and retention behaviour, with no expiry guarantee or promise
+of permanent availability. The app reconnects and rehydrates records on open.
 
-**Decided · 2026-09-29.** Groups are an add-on. Use a simple version that works
-well in ordinary cases, or launch without them. Private groups have no admins
-or leader/follower hierarchy. Anyone can form a smaller subgroup. A group starts
-by inviting someone from a chat or by creating one from scratch. Members should
-keep their history, barely notice ordinary forks, and see old groups cleaned
-up automatically.
+## 7. Groups that change with their size
 
-**Proposed · 2026-09-29.** Groups have fixed membership; adding or removing
-someone creates a fork, and leaving is always possible. Invite only existing
-contacts with their consent, so groups do not bypass introductions. Existing
-members retain local history; newcomers receive no old history. The client
-could show related forks as one conversation, automatically follow additive
-forks, and make subgroups explicit opt-in choices. Nobody silently removes
-someone else: blocking hides that person for the blocker, while a subgroup
-without them is a choice for other members. End old forks after everyone moves
-or leaves; archive/delete inactive groups under platform settings. Block and
-punish remain available and the initial experience is online-only.
+**Decided · 2026-10-01.** Groups are part of the MVP, capped at 100 members by
+community policy. One group concept has three levels:
 
-**Decided · 2026-09-29.** There are two product group kinds: private groups for
-existing contacts, and semipublic groups where newcomers can meet and exchange
-profiles. In semipublic groups, joining explicitly consents to mutual private
-profile visibility. The join screen must say so. This replaces checking personal
-profile rules for each semipublic-room request. Members wanting strict rules
-can decline to join; rules still apply elsewhere. Look-back and blocking still
-apply inside groups.
+| Level | Size | Experience |
+|---|---|---|
+| Circle | 3–12 | Hidden group of friends, invitations through own contacts with consent, changes through forks. Newcomers receive no earlier history. |
+| Ingroup | 13–42 | Hidden class or team. Joining needs the band’s vouches; newcomers see only its recent-history window. |
+| Public room | 43–100 | Listed meeting place, with living membership and ordered changes. Joining explicitly consents to seeing each other’s private profiles. |
+
+Notifications, posting pace, vouching and newcomer history adjust through nine
+size bands. Every group shows its level and the next change. Crossing 12/13 or
+42/43 toward greater visibility is always a consent fork: only members who agree
+move. No one is exposed automatically. An opening public room has 21 days to
+reach 43; otherwise it becomes a hidden Ingroup and visibility consent lapses.
+Shrinking automatically increases privacy, with hysteresis: Public to Ingroup
+at 36 or fewer, Ingroup to Circle at 10 or fewer. Admin-created seed rooms are
+public from the start and remain listed when small.
 
 ```text
 +------------------------------------------------------------+
-| Join a semipublic group                                    |
-| Members of this group see each other's private profiles.   |
+| Join a public room                                         |
+| Members see each other's private profiles.                 |
 | Joining means consenting to that visibility.               |
+| <level, current size, what changes next>                    |
 +------------------------------------------------------------+
 ```
 
-**Proposed · 2026-09-29; Open/parked through 2026-09-30.** Standing rooms could
-be created by community admins, use signed consent and automatic admission by
-an online member, exchange profile keys in encrypted group messages, apply
-posting limits, and have a tentative cap of about 100 members. Direct first
-contact from a group would still spend an introduction. Private-group profile
-requests could use co-membership in place of a match token while retaining
-personal rules. Room ordering and encrypted-profile access remain unresolved;
-a blind forum order point is acceptable only if it learns no membership or
-content. A proposed traffic-volume-only view still needs reconciliation with
-that condition.
+Look-back and personal blocking remain available. Groups have no admins or
+expulsion operation. A member may leave, mute, block, or propose an exit fork;
+nonmovers keep their original group. Each mover chooses. Related forks appear
+as one conversation with a quiet transition line and retained local history.
+After 72 hours the larger public fork takes the listing; ties favour the older
+lineage. Direct first contact from a group costs a Wave as usual; joining,
+forking, merging and splitting never cost a Wave.
 
-The wider Slack-style open-topic channel model is Open and parked. Proposed
-preparation includes conversation types, ignoring unknown types, and extensible
-membership policy on MLS. History for newcomers without server storage remains
-Open. **Decided · 2026-09-30:** groups use the same member-side forum connection
-as discovery; that connection choice does not settle the room protocol.
+Newcomer history is handed over by members within policy limits: Ingroup bands
+use 14 days (up to 200 messages), 7 days or 3 days; Public bands use 24 hours/100
+messages, 12 hours/50 or 6 hours/50. Public rooms above 59 members allow at most
+six joins per hour. Clients enforce posting pace on both send and receive.
+Profile keys travel inside encrypted group messages; the server has no keys,
+GroupInfo, MLS tree or readable message history. Its accepted room disclosure
+is active-connection count and traffic volume per public room, without identities,
+membership lists or links from members to rooms. Permit and restart-recovery
+proofs remain implementation work.
+
+Devices suggest splitting crowded groups or merging small overlapping groups.
+These are invitations, not forced moves. Welcoming a newcomer can earn 0.25 Wave;
+a successful introduction can earn 1 Wave, limited to 1.5 Waves per week and the
+member’s available capacity headroom. Signed receipts prevent duplicate grants.
+The introduced pair still use ordinary first contact.
+
+The seat economy is **formats only at launch** (`seats.enabled=false`). The
+local activity ledger is enabled, but the app does not charge seats or require
+a seat balance to join. A future attention budget cannot be bought, transferred
+or exchanged for Waves. Its weight rises for passive seats in tiny or crowded
+groups, and one real message per week makes a seat free. A seat meter appears
+only when the economy is enabled, after the planned dry run and proof checks.
+
+Groups and rooms share Board’s single forum connection. Group membership and
+encrypted conversation/history have separate owners behind the same member API.
+The room load test is part of the build. Cap increases and seat activation need
+their recorded validation gates; Slack-style topic channels remain later work.

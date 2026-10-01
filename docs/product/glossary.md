@@ -1,6 +1,6 @@
 # Product glossary
 
-Vocabulary as of **2026-09-30**. Library entries describe responsibility, not
+Vocabulary as of **2026-10-01**. Library entries describe responsibility, not
 shipping status. Detailed architecture belongs in the library repositories.
 
 ## Product terms
@@ -27,26 +27,32 @@ shipping status. Detailed architecture belongs in the library repositories.
 | Board | The member-side view and connection to the forum. |
 | Matching | Evaluating whether two members satisfy each other's rules. |
 | Matchmaking | Finding matching candidates efficiently and delivering current, paged results and changes. |
-| Match token | A Proposed short-lived signed statement that a pair currently matches, for use in key requests. |
+| Match token | A reserved format for a possible later signed match statement; omitted from the MVP. Current reciprocal checks still govern access. |
 | Public profile / card | Typed searchable fields visible through the forum's permitted discovery results. |
 | Private profile | Encrypted profile content whose key is released peer to peer under rules or semipublic-group consent. |
 | Look-back | A private-profile requester supplies their own key first so an accepting owner can view them in return. |
 | Schema | The community's typed definition of public/private profile fields, validation and change restrictions. |
 | Pin / seal | A hiding commitment that limits field changes without storing the profile value in admission services. |
 | Grandfathering | Allowing an older profile after some schema tightening instead of immediately excluding it from matching. |
-| Introduction / first contact | A live initial message reserving one sender introduction and one recipient incoming slot. |
+| Wave / introduction / first contact | A live first contact reserving one sender introduction and one recipient incoming slot; direct first contact from a group follows the same rule. |
 | Reciprocity | The balance rules for introductions, responses, waiting and punishment. |
 | Public record | Quorum-gated relative accepted/declined/punished outcomes, never absolute counts. |
 | Block B | A device-retained block sent as an online forum rule, hiding the blocker from the blocked member. |
 | Punish | A costly response affecting both parties and automatically blocking the other member. |
-| Private group | A group of contacts without a leader hierarchy; detailed fork mechanics remain Proposed. |
+| Private group | A hidden Circle or Ingroup with consent-based membership changes and no admin/expulsion hierarchy. |
+| Circle | Hidden group of 3–12, invited through own contacts; newcomers receive no previous history. |
+| Ingroup | Hidden group of 13–42 with vouching and recent newcomer history set by size band. |
+| Opening room | Consented public fork with 21 days to reach 43; otherwise it becomes hidden and visibility consent lapses. |
+| Seat | Membership in a group. The future attention budget is formats only at launch, with no seat spending. |
 | Fork | A related group with changed membership, while existing members retain their local history. |
-| Semipublic group / room | A meeting space where joining explicitly consents to mutual private-profile visibility. |
+| Public room / semipublic group | Listed living group, normally 43–100 members, with ordered changes and explicit mutual private-profile visibility consent. Public seed rooms may start smaller. |
 | Admin | A community operator controlling that community's permitted settings. |
 | Godmode / root | The platform interface that selects communities and can override their admins. |
 | White label | Community-controlled branding, landing content and domains over the shared product. |
 | No return | Permanent refusal after registration expiry or loss of all passkeys; handle reuse does not restore identity. |
 | Self-ban | Voluntary permanent closure, confirmed with a fresh passkey and a clear no-return warning. |
+| Preload | Establishing the network connection before member use, including Tor bootstrap and onion publication. |
+| DHT population | Participating device nodes storing sealed records for offline messages and vault restore; capacity and churn limit availability. The operator stores no records. |
 | MCP | Model Context Protocol, exposing product actions to agents; member actions run on the member's machine. |
 
 ## Which library does what
@@ -68,22 +74,33 @@ shipping status. Detailed architecture belongs in the library repositories.
 | `cgrd` | Guard checks on member/profile bundles and rules, reused on services and devices. |
 | `csgn` | Signing and verification of scoped credentials and policy snapshots. |
 | `cpsd` | Anonymous credential issuance and proofs with unlinkable community pseudonyms. |
-| `cfrm` | Forum service: ephemeral presence, profile listings and matchmaking; room design remains Open. |
-| `cmsg` | Member-side entry point composing the member's private state and communication features. |
-| `cfyr` | Foyer: member-side admission, login, lobby and device-management flows; design/integration remains unfinished. |
+| `csrn` | Assurance: verifies and follows signed community material from cvld. |
+| `cchr` | Charter: verified community material and revisions under Assurance. |
+| `cgth` | Gather: Attend, Lookup and [Forum rooms]. |
+| `ctnd` | Attend: live entry, heartbeat, update and departure. |
+| `clkp` | Lookup: typed indexes, candidate selection and paged match feed. |
+| `cpfl` | Profile: own profile and rules as one signed publication under Board. |
+| `cfrm` | Ephemeral forum door for attendance, matching and blind public-room ordering/relay. Room disclosure is connection count and traffic volume only. |
+| `cmsg` | Member door and official local API for all frontends, including CLI and third-party clients; forwards admin/root actions through Foyer. |
+| `cfyr` | Foyer: counterpart of cvld for admission, login, lobby, devices and admin/root forwarding; in the current build scope. |
 | `cbrd` | Board: the sole member-side forum connection, including approved group-related forum operations. |
-| `cnbx` | Inbox: contacts, introductions, blocks and conversation outcomes. |
-| `cmls` | End-to-end encrypted messaging using MLS. |
-| `cgrp` | Group behaviour, using the board for forum-related work. |
+| `cnbx` | Inbox: Waves, Contacts, Threads and Delivery for direct, group and room conversations. |
+| `cthr` | Threads: OpenMLS conversations, ordered epochs, lineage and accepted history; replaces the old messaging-facade split. |
+| `cdlv` | Delivery: live sessions, DHT-backed offline delivery, recipient receipts and retries. |
+| `ctcs` | Contacts: relationships, blocks and their synced private journal. |
+| `cwvs` | Waves: first contact, release, answer, close and punishment outcomes. |
+| `cgrp` | Groups under Board: life cycle, size-based levels, consent/forks/lineage, safety and local suggestions; no admin roles. |
+| [Forum rooms] | Working name for Gather’s LGPL blind ordering, encrypted relay and room-pass library. Package name remains open. |
+| [Member rooms] | Working name for Board’s LGPL consent, joining, profile-key exchange and newcomer-history library. Package name remains open. |
 | `cvlt` (vault) | Encrypted member state and device access on the member side. |
 | `cwlt` | Holder wallet: keep credentials and balance openings, and generate proofs. |
 | `cwst` | Encrypted device storage with browser and native backends. |
 | `ckmg` | Member key management and purpose-specific keys. |
-| `cdht` | Signed replicated member records, including device-state synchronization. |
+| `cdht` | Veilid byte-conformant encrypted records for device sync, passkey-derived restore and offline messages through either network backend. |
 | `cmsh` | Anonymous peer-to-peer transport abstraction. |
-| `cvln` | Veilid transport backend, the intended primary route subject to browser validation. |
-| `ctrn` | Tor transport backend and browser bridge support. |
-| `cfbk` | Configured fallback ordering without silently dropping below required protection. |
+| `cvln` | Veilid backend, the primary network in the making, subject to backend/browser/privacy qualification. |
+| `ctrn` | Tor launch backend, retained as the fully established backup after Veilid becomes primary. |
+| `cfbk` | Fallback execution under cvld → cmty → cplc, reused by Mesh; never silently reduces required protection. |
 | `cblc` | Zero-knowledge balance policies for introductions, changes and other quotas. |
 | `cssr` | Balance issuer accepting verified updates. |
 | `cvfy` | Balance proof verifier. |
@@ -101,13 +118,18 @@ shipping status. Detailed architecture belongs in the library repositories.
 | `cfrt` | Per-action effort checks, such as proof of work, distinct from payment. |
 | `cpxm` | Proximity-check placeholder; concrete product mechanism is not selected. |
 | `clbs` | Legal block switch and permanent self-ban enforcement. |
-| `cthl` | Request throttling and bounded quotas. |
-| `crlt` | Persistent relational storage used by admission and accounting. |
-| `cvtl` (volatile) | Expiring forum storage; distinct from the member vault `cvlt`. |
+| `cthl` | Throttle under cvld → cmty → cplc, reused by other facades through its policy home. |
+| `crlt` | Persistent relational storage directly under the cvld door. |
+| `cvtl` (volatile) | FSL forum-storage facade over LGPL cvlk Valkey and cmmr Memory, with expiry required on every write; distinct from cvlt Vault. |
+| `cvlk` | LGPL Valkey adapter; warns instead of refusing when persistence is enabled. |
+| `cmmr` | LGPL Memory adapter implementing the same volatile-storage contract. |
 | `cprz` | Payload compression and privacy-preserving padding. |
 | `cnry` | Independent warrant-canary publication/checking, a low-priority feature. |
 | `ccht` | Proposed reusable conversations for future chatbot-assisted schema editing. |
 
 `cmeet` is the BSL product containing the web, app and CLI shells, not a library.
-Library responsibilities above do not settle their unfinished internal designs
-or the [member-side licensing question](open-questions.md#domains-white-label-clients-and-launch).
+The community facade is `cmty`; `cmnt` is reserved for a future “mount”.
+Library responsibilities describe the current v2 baseline, not shipped status.
+[Licensing A](decisions.md#frontend-and-clients) keeps facades FSL on both sides,
+leaves LGPL and the product BSL. Open package names and integration work remain
+in the [open questions](open-questions.md).
