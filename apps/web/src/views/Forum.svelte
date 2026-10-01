@@ -30,6 +30,7 @@
   function setFilter(field: string, patch: Partial<DiscoveryFilter> | null) {
     const rest = filters.filter((f) => f.field !== field);
     filters = patch ? [...rest, { field, ...patch }] : rest;
+    void search();
   }
 
   async function search() {

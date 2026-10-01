@@ -55,8 +55,8 @@
         error = issues[0]?.message ?? 'The profile is not complete yet.';
         return;
       }
-      await client.saveRules(rules.filter((r) => r.equals?.length || r.min !== undefined || r.max !== undefined));
-      await client.publishProfile(values);
+      await client.saveRules($state.snapshot(rules.filter((r) => r.equals?.length || r.min !== undefined || r.max !== undefined)));
+      await client.publishProfile($state.snapshot(values));
       saved = true;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Saving did not work. Try again.';

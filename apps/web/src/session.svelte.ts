@@ -9,7 +9,10 @@ import type {
 // in-memory development adapter (UI development and component tests). The
 // real generated client replaces `createClient` without changing components.
 export function createClient(): CmsgClient {
-  return createDevCmsg();
+  // Dev-only: e2e may slow the preload via ?dev-connect-delay=ms to observe
+  // the connecting screen. Never part of the production contract.
+  const delay = Number(new URLSearchParams(window.location.search).get('dev-connect-delay'));
+  return createDevCmsg(Number.isSafeInteger(delay) && delay > 0 ? { connectDelayMs: delay } : {});
 }
 
 export type Route =

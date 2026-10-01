@@ -55,7 +55,7 @@
     error = '';
     impact = '';
     try {
-      const result = await client.adminSaveSchema(schema);
+      const result = await client.adminSaveSchema($state.snapshot(schema));
       impact = `${result.note} Profiles needing changes: ${result.profilesNeedingChanges}.`;
       schema = await client.adminSchema();
     } catch (e) {

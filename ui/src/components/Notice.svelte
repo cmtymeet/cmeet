@@ -5,7 +5,7 @@
     children?: import('svelte').Snippet;
   }
   let { tone = 'info', title = '', children }: Props = $props();
-  const alert = tone === 'error' || tone === 'warning';
+  const alert = $derived(tone === 'error' || tone === 'warning');
 </script>
 
 <div class="notice notice-{tone}" role={alert ? 'alert' : 'status'}>
@@ -22,5 +22,5 @@
   .notice-error { background: var(--cmeet-danger-bg); color: var(--cmeet-danger); border-color: transparent; }
   .notice-success { background: var(--cmeet-accent-soft); }
   strong { display: block; margin-bottom: 0.25rem; }
-  p, div { margin: 0; }
+  div { margin: 0; }
 </style>

@@ -25,7 +25,7 @@
     <button role="tab" aria-selected={side === 'back'} class:active={side === 'back'} onclick={() => (side = 'back')}>{backLabel}</button>
   </div>
   {#if side === 'front'}
-    <section role="tabpanel" aria-label={frontLabel}>
+    <section aria-label={frontLabel}>
       <dl>
         {#each publicFields as field}
           <div><dt>{field.question}</dt><dd>{show(values[field.key])}</dd></div>
@@ -33,7 +33,7 @@
       </dl>
     </section>
   {:else}
-    <section role="tabpanel" aria-label={backLabel}>
+    <section aria-label={backLabel}>
       <dl>
         {#each privateFields as field}
           <div><dt>{field.question}</dt><dd>{show(values[field.key])}</dd></div>
