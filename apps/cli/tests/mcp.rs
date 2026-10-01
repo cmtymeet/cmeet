@@ -73,3 +73,50 @@ async fn malformed_duplicate_protocol_and_oversized_frames_close_without_authori
     }
     assert!(host.invoke(br#"{"action":"runtime.status","version":1,"body":{}}"#, ORIGIN).await.status.success());
 }
+
+#[tokio::test]
+async fn excessive_outstanding_requests_duplicate_ids_and_broken_output_terminate() {
+    let host = Host::delayed(std::time::Duration::from_secs(2)).await;
+    for duplicate in [false, true] {
+        let mut child = host.spawn("mcp", ORIGIN);
+        let mut writer = child.stdin.take().unwrap();
+        let mut reader = BufReader::new(child.stdout.take().unwrap());
+        initialize(&mut writer, &mut reader).await;
+        for i in 0..=cmeet::mcp::MAX_PENDING {
+            let id = if duplicate { 1 } else { i + 1 };
+            let message = json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"runtime.status","arguments":{}}});
+            if writer.write_all(format!("{message}\n").as_bytes()).await.is_err() { break; }
+        }
+        let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output()).await.unwrap().unwrap();
+        assert!(!result.status.success());
+        drop(writer);
+    }
+    let mut child = host.spawn("mcp", ORIGIN);
+    let mut writer = child.stdin.take().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+    initialize(&mut writer, &mut reader).await;
+    drop(reader);
+    send(&mut writer, json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})).await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output()).await.unwrap().unwrap();
+    assert!(!result.status.success());
+}
+
+#[tokio::test(start_paused = true)]
+async fn stalled_initialization_and_idle_sessions_do_not_live_forever() {
+    let host = Host::new().await;
+    let (reader, _held) = tokio::io::duplex(128);
+    assert!(matches!(cmeet::mcp::serve(host.client(), reader, tokio::io::sink(), tokio_util::sync::CancellationToken::new()).await, Err(cmsg::door::ErrorCode::Unavailable)));
+}
+
+#[tokio::test]
+async fn eof_during_real_owner_call_reports_unknown_outcome() {
+    let host = Host::delayed(std::time::Duration::from_secs(2)).await;
+    let mut child = host.spawn("mcp", ORIGIN);
+    let mut writer = child.stdin.take().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+    initialize(&mut writer, &mut reader).await;
+    send(&mut writer, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"runtime.status","arguments":{}}})).await;
+    drop(writer);
+    let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output()).await.unwrap().unwrap();
+    assert_eq!(result.status.code(), Some(i32::from(cmsg::door::ErrorCode::Reconcile.exit_code())));
+}

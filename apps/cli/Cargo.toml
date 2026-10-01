@@ -23,6 +23,7 @@ zeroize = "1"
 rustix = { version = "1", features = ["fs", "process", "pipe"] }
 
 [dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
 serde = { version = "1", features = ["derive"] }
 axum = "0.8"
 tempfile = "3"

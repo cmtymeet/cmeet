@@ -79,13 +79,12 @@ pub async fn capability(fd: u32) -> Result<ClientToken, ErrorCode> {
     let read = async {
         let mut bytes = Zeroizing::new(Vec::new());
         loop {
-            let mut buffer = [0; 44];
+            let mut buffer = Zeroizing::new([0; 44]);
             let mut guard = pipe.readable().await.map_err(|_| ErrorCode::Unavailable)?;
-            match guard.try_io(|inner| inner.get_ref().read(&mut buffer)) {
+            match guard.try_io(|inner| inner.get_ref().read(buffer.as_mut())) {
                 Ok(Ok(0)) => return ClientToken::from_protected_transport(bytes),
                 Ok(Ok(count)) => {
                     bytes.extend_from_slice(&buffer[..count]);
-                    zeroize::Zeroize::zeroize(&mut buffer);
                     if bytes.len() > 43 {
                         return Err(ErrorCode::Unauthorized);
                     }

@@ -13,6 +13,7 @@ use tokio_util::{codec::{FramedRead, FramedWrite}, sync::CancellationToken};
 
 pub const MAX_FRAME_BYTES: usize = cmsg::door::MAX_BODY_BYTES + 8192;
 pub const MAX_PENDING: usize = 32;
+pub const MAX_OUTPUT_BYTES: usize = 4 * cmsg::door::MAX_RESULT_BYTES;
 pub const IDLE_DEADLINE: Duration = Duration::from_secs(300);
 
 #[derive(Clone)]
@@ -106,7 +107,12 @@ impl<R: AsyncRead + Unpin + Send, W: AsyncWrite + Unpin + Send + 'static> Transp
                 JsonRpcMessage::Error(r) => r.id.clone(),
                 _ => None,
             };
-            let send = async { writer.lock().await.send(item).await.map_err(io::Error::from) };
+            let send = async {
+                if serde_json::to_vec(&item)?.len() > MAX_OUTPUT_BYTES {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+                writer.lock().await.send(item).await.map_err(io::Error::from)
+            };
             let result = tokio::time::timeout(IO_DEADLINE, send).await
                 .map_err(|_| io::Error::from(io::ErrorKind::TimedOut)).and_then(|r| r);
             if result.is_err() {
@@ -150,15 +156,17 @@ pub async fn serve(
     cancel: CancellationToken,
 ) -> Result<(), ErrorCode> {
     let failed = Arc::new(AtomicBool::new(false));
+    let pending = Arc::new(Mutex::new(HashSet::new()));
     let transport = BoundedTransport {
         reader: FramedRead::new(reader, JsonRpcMessageCodec::new_with_max_length(MAX_FRAME_BYTES)),
         writer: Arc::new(Mutex::new(FramedWrite::new(writer, JsonRpcMessageCodec::new()))),
-        pending: Arc::new(Mutex::new(HashSet::new())),
+        pending: pending.clone(),
         failed: failed.clone(), cancel: cancel.clone(),
     };
     let service = tokio::time::timeout(IO_DEADLINE, Server::new(client).serve_with_ct(transport, cancel))
         .await.map_err(|_| ErrorCode::Unavailable)?.map_err(|_| ErrorCode::Unavailable)?;
     let reason = service.waiting().await.map_err(|_| ErrorCode::Unavailable)?;
+    if !pending.lock().await.is_empty() { return Err(ErrorCode::Reconcile); }
     if failed.load(Ordering::Relaxed) { return Err(ErrorCode::Unavailable); }
     match reason {
         rmcp::service::QuitReason::Closed => Ok(()),

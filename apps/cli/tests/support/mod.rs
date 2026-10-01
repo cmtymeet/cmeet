@@ -31,7 +31,9 @@ impl Drop for Host {
     }
 }
 impl Host {
-    pub async fn new() -> Self {
+    pub async fn new() -> Self { Self::delayed(std::time::Duration::ZERO).await }
+
+    pub async fn delayed(delay: std::time::Duration) -> Self {
         let config = Configuration::new(
             "test".into(),
             BTreeMap::from([(Role::Member, BTreeSet::from([ORIGIN.into()]))]),
@@ -51,6 +53,10 @@ impl Host {
         let address = listener.local_addr().unwrap();
         let router =
             native::router(door, BTreeSet::from([address.to_string()]), Arc::new(Clock)).unwrap();
+        let router = router.layer(axum::middleware::from_fn(move |request: axum::extract::Request, next: axum::middleware::Next| async move {
+            tokio::time::sleep(delay).await;
+            next.run(request).await
+        }));
         let task = tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();
         });
