@@ -43,7 +43,7 @@ test('groups, devices, admin schema and root', async ({ page }) => {
   await page.getByRole('button', { name: 'Sign in as admin' }).click();
   await expect(page.getByRole('heading', { name: 'Live preview' })).toBeVisible();
   const firstQuestion = await page.locator('.schema-row').first().textContent();
-  await page.locator('.schema-row').first().getByRole('button', { name: '↓' }).click();
+  await page.locator('.schema-row').first().getByRole('button', { name: /Move down/ }).click();
   const movedQuestion = await page.locator('.schema-row').nth(1).textContent();
   expect(movedQuestion).toBe(firstQuestion);
   await page.getByRole('button', { name: 'Save schema' }).click();
