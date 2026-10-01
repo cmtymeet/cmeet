@@ -35,7 +35,7 @@ pub fn read_bytes(reader: impl Read, max_bytes: u32) -> Result<Vec<u8>, Error> {
     reader
         .take(u64::from(max_bytes) + 1)
         .read_to_end(&mut bytes)
-        .map_err(|error| Error::Read(error.kind()))?;
+        .map_err(input_error)?;
     if bytes.len() as u64 > u64::from(max_bytes) {
         return Err(Error::InputTooLarge);
     }
@@ -65,10 +65,20 @@ pub fn write_json(
         Format::Json => serde_json::to_vec(value),
         Format::Pretty => serde_json::to_vec_pretty(value),
     };
-    let mut encoded = encoded.map_err(|_| Error::InvalidOutput)?;
+    let mut encoded = encoded.map_err(serialization_error)?;
     encoded.push(b'\n');
-    writer
-        .write_all(&encoded)
-        .and_then(|()| writer.flush())
-        .map_err(|error| Error::Write(error.kind()))
+    writer.write_all(&encoded).map_err(output_error)?;
+    writer.flush().map_err(output_error)
+}
+
+fn input_error(error: io::Error) -> Error {
+    Error::Read(error.kind())
+}
+
+fn output_error(error: io::Error) -> Error {
+    Error::Write(error.kind())
+}
+
+fn serialization_error(_: serde_json::Error) -> Error {
+    Error::InvalidOutput
 }
