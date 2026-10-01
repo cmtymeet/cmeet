@@ -4,8 +4,8 @@ The required scenario runs the same cmeet program and cmsg actions as every
 frontend. It has not run. CLI I/O tests, development UI journeys and library
 fixtures are separate evidence and cannot make this scenario pass.
 
-There is no acceptance job until real orchestration can execute these rows. An
-unavailable row is **BLOCKED**, a failed assertion is **FAIL**, and only the
+The CI `toy` gate deliberately fails until real orchestration can execute every
+row. It runs no substitute scenario. An unavailable row is **BLOCKED**, a failed assertion is **FAIL**, and only the
 conjunction of every required row can be **PASS**. The current status of every
 row below is BLOCKED.
 

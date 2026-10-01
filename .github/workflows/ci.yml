@@ -3,9 +3,9 @@ name: ci
 on:
   push:
     branches: [main]
-    paths: ['apps/cli/**', 'native/backend/**', '.ci/accounting-native/**', '.ci/policy/**', '.github/workflows/ci.yml']
+    paths: ['apps/cli/**', '.ci/policy/**', '.github/workflows/ci.yml']
   pull_request:
-    paths: ['apps/cli/**', 'native/backend/**', '.ci/accounting-native/**', '.ci/policy/**', '.github/**']
+    paths: ['apps/cli/**', '.ci/policy/**', '.github/**']
   workflow_dispatch:
 
 permissions:
@@ -37,7 +37,7 @@ jobs:
           date -u +%FT%TZ > evidence/resolved-at.txt
           : > evidence/resolved-roots.txt
           failed=0
-          for root in apps/cli native/backend .ci/accounting-native; do
+          for root in apps/cli; do
             if cargo update --manifest-path "$root/Cargo.toml"; then
               printf '%s\n' "$root" >> evidence/resolved-roots.txt
             else
@@ -52,8 +52,6 @@ jobs:
           include-hidden-files: true
           path: |
             apps/cli/Cargo.lock
-            native/backend/Cargo.lock
-            .ci/accounting-native/Cargo.lock
             evidence/
           retention-days: 7
   dependency-policy:
@@ -91,12 +89,10 @@ jobs:
           cache-on-failure: true
           workspaces: |
             apps/cli
-            native/backend
-            .ci/accounting-native
       - name: Stable format, lint and real tests
         run: |
           failed=0
-          for root in apps/cli native/backend .ci/accounting-native; do
+          for root in apps/cli; do
             if grep -Fxq -- "$root" evidence/resolved-roots.txt; then
               cargo fmt --manifest-path "$root/Cargo.toml" --check || failed=1
               cargo clippy --manifest-path "$root/Cargo.toml" --locked --all-targets -- -D warnings || failed=1
@@ -110,7 +106,7 @@ jobs:
       - name: Retain exact formatting suggestions
         if: failure()
         run: |
-          for root in apps/cli native/backend .ci/accounting-native; do
+          for root in apps/cli; do
             if grep -Fxq -- "$root" evidence/resolved-roots.txt; then cargo fmt --manifest-path "$root/Cargo.toml"; fi
           done
           git diff > formatting.patch
@@ -142,13 +138,11 @@ jobs:
           cache-on-failure: true
           workspaces: |
             apps/cli
-            native/backend
-            .ci/accounting-native
       - name: Require every reachable line and branch
         run: |
           mkdir -p coverage
           failed=0
-          for root in apps/cli native/backend .ci/accounting-native; do
+          for root in apps/cli; do
             if grep -Fxq -- "$root" evidence/resolved-roots.txt; then
               report="coverage/$(basename "$root").json"
               if cargo llvm-cov --manifest-path "$root/Cargo.toml" --locked --all-targets --branch --json --output-path "$report"; then
@@ -170,3 +164,11 @@ jobs:
           path: coverage/
           if-no-files-found: error
           retention-days: 7
+  toy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Refuse incomplete product acceptance
+        run: |
+          echo "::error::BLOCKED: the conjunctive real member/admin/root, Tor, groups and device-loss scenario is not implemented. See tests/toy/README.md."
+          exit 1

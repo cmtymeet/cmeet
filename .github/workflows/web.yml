@@ -1,7 +1,7 @@
 name: Web frontend
 on:
   push:
-    branches: ['**']
+    branches: [main]
     paths:
       - 'apps/web/**'
       - 'ui/**'
@@ -44,6 +44,8 @@ jobs:
         run: npm run test:unit
       - name: Build
         run: npm run build
+      - name: Verify generated browser asset closure
+        run: node ../../.ci/assert-asset-closure.mjs dist
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
       - name: UI fixture journeys (development server)

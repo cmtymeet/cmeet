@@ -30,13 +30,12 @@ The [toy acceptance contract](tests/toy/README.md) is **blocked**. Real voucher
 admission, proof-backed accounting, Tor conversations, groups, offline delivery
 and same-passkey device-loss restore must all pass before product acceptance.
 
-The top-level JavaScript app, `server`, `native/backend` and their generated
-`file:vendor` package graph are a legacy implementation awaiting coherent
-replacement. They are retained for reusable mechanisms and historical tests;
-their direct server integration is not the target product architecture. Root
-`npm install` currently cannot resolve the absent generated vendor packages.
-Use the isolated `apps/web` package for frontend work. Legacy deployment
-artifacts do not certify the new CLI or network.
+The obsolete top-level JavaScript server, native backend and generated vendor
+package graph have been retired. [The retirement record](docs/retired-prototype.md)
+identifies their consumers, reusable mechanisms and historical evidence. The
+only Rust product program is `apps/cli`; the web package remains isolated under
+`apps/web`. CLI checks may pass while the required `toy` acceptance gate stays
+red. No current runtime image or deployment is certified by this migration.
 
 ## License
 
