@@ -32,6 +32,16 @@ red: raw LLVM reported 494/505 lines and 62/62 branches; source counters reporte
 reported, despite the different summary totals. The same real report remains
 rejected by the source gate. No smaller threshold is used.
 
+The completed adapter suite at
+`1b180aa97dbcd4a5fd2fb53a460764a417519b2d` passes all 43 tests on stable and
+nightly, stable formatting and Clippy, and the source gate at **492/492 lines
+and 66/66 branches**, with no production exclusions. Its
+[exact CI run](https://github.com/cmtymeet/cmeet/actions/runs/36905390186)
+retains all three reports and the resolved dependency snapshot. Raw LLVM
+summaries are 510/515 lines and 65/66 branches; those instantiation-sensitive
+summaries are not claimed as 100%. All emitted source counters and their
+complete inventories pass the source metric described above.
+
 The full `toy` gate remains red until every real scenario in
 [its acceptance contract](../tests/toy/README.md) executes. Adapter coverage,
 trusted test-host pairing and production browser refusal cannot replace member
