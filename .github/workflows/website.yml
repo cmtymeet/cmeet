@@ -30,8 +30,8 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: cmeet-implementation
+  cancel-in-progress: false
 jobs:
   website:
     runs-on: ubuntu-24.04

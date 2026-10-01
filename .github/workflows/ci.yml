@@ -1,0 +1,143 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/cli/**', 'native/backend/**', '.ci/accounting-native/**', '.ci/policy/**', '.github/workflows/ci.yml']
+  pull_request:
+    paths: ['apps/cli/**', 'native/backend/**', '.ci/accounting-native/**', '.ci/policy/**', '.github/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmeet-implementation
+  cancel-in-progress: false
+
+env:
+  CARGO_BUILD_JOBS: '2'
+  CARGO_TERM_COLOR: never
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve one snapshot per Cargo root
+        run: |
+          mkdir -p evidence
+          rustc --version --verbose > evidence/rustc.txt
+          date -u +%FT%TZ > evidence/resolved-at.txt
+          for root in apps/cli native/backend .ci/accounting-native; do
+            if test -f "$root/Cargo.toml"; then
+              cargo update --manifest-path "$root/Cargo.toml"
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-snapshot
+          include-hidden-files: true
+          path: |
+            apps/cli/Cargo.lock
+            native/backend/Cargo.lock
+            .ci/accounting-native/Cargo.lock
+            evidence/
+          retention-days: 7
+  dependency-policy:
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: dependency-snapshot
+      - run: python3 .ci/policy/check-first-party.py
+  check:
+    needs: [resolve, dependency-policy]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: dependency-snapshot
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/cli
+            native/backend
+            .ci/accounting-native
+      - name: Stable format, lint and real tests
+        run: |
+          for root in apps/cli native/backend .ci/accounting-native; do
+            if test -f "$root/Cargo.toml"; then
+              cargo fmt --manifest-path "$root/Cargo.toml" --check
+              cargo clippy --manifest-path "$root/Cargo.toml" --locked --all-targets -- -D warnings
+              cargo test --manifest-path "$root/Cargo.toml" --locked --all-targets
+            fi
+          done
+      - name: Retain exact formatting suggestions
+        if: failure()
+        run: |
+          for root in apps/cli native/backend .ci/accounting-native; do
+            if test -f "$root/Cargo.toml"; then cargo fmt --manifest-path "$root/Cargo.toml"; fi
+          done
+          git diff > formatting.patch
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: formatting
+          path: formatting.patch
+  coverage:
+    needs: [resolve, check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: dependency-snapshot
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: coverage
+          workspaces: |
+            apps/cli
+            native/backend
+            .ci/accounting-native
+      - name: Require every reachable line and branch
+        run: |
+          mkdir -p coverage
+          for root in apps/cli native/backend .ci/accounting-native; do
+            if test -f "$root/Cargo.toml"; then
+              report="coverage/$(basename "$root").json"
+              cargo llvm-cov --manifest-path "$root/Cargo.toml" --locked --all-targets --branch --json --output-path "$report"
+              python3 .ci/policy/check-coverage.py "$report"
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: error
+          retention-days: 7
