@@ -1,21 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import type { CmsgClient, GateStep, LobbyState } from '../../../../core/src/cmsg.js';
   import { Button, Notice } from '../../../../ui/src/index.js';
   import { lobbyStrings as strings } from '../strings/lobby.js';
-
-  // Forward-compatible presentation types. The core worker implements
-  // GateStep.action and completeGate; older backends omit both and the
-  // lobby still renders every returned step without inventing actions.
-  interface GateAction {
-    label: string;
-    inputLabel?: string;
-  }
-  type ActionableGate = GateStep & { action?: GateAction };
-  type LobbyClient = CmsgClient & {
-    completeGate?: (id: string, input: string) => Promise<LobbyState>;
-  };
-  type LobbyWarnings = LobbyState & { syncedPasskeyWarning?: string | null };
 
   interface Props {
     client: CmsgClient;
@@ -29,28 +16,10 @@
   let inputs: Record<string, string> = $state({});
   let alive = true;
 
-  function steps(state: LobbyState | null): ActionableGate[] {
-    // The backend returns only active gates; render them exactly as given.
-    return ((state?.gates ?? []) as ActionableGate[]);
-  }
-
-  function serverPasskeyWarning(state: LobbyState | null): string | null {
-    const warning = (state as LobbyWarnings | null)?.syncedPasskeyWarning;
-    return typeof warning === 'string' && warning.length > 0 ? warning : null;
-  }
-
   function statusLabel(gate: GateStep): string {
     if (gate.state === 'complete') return strings.complete;
     if (gate.state === 'waiting') return strings.waiting;
     return strings.actionNeeded;
-  }
-
-  function canAct(gate: ActionableGate): boolean {
-    return (
-      gate.state === 'action-needed' &&
-      !!gate.action &&
-      typeof (client as LobbyClient).completeGate === 'function'
-    );
   }
 
   async function load() {
@@ -62,23 +31,24 @@
     } catch (e) {
       if (!alive) return;
       loadError = e instanceof Error ? e.message : strings.loadFailedFallback;
+      await tick();
       document.getElementById('lobby-load-error')?.focus();
     }
   }
 
   async function complete(id: string) {
-    const runner = (client as LobbyClient).completeGate;
-    if (!runner) return;
+    if (busyId) return;
     busyId = id;
     actionError = '';
     try {
-      const next = await runner.call(client, id, inputs[id] ?? '');
+      const next = await client.completeGate(id, inputs[id] ?? '');
       if (!alive) return;
       lobby = next;
       inputs = { ...inputs, [id]: '' };
     } catch (e) {
       if (!alive) return;
       actionError = e instanceof Error ? e.message : strings.refusedFallback;
+      await tick();
       document.getElementById('lobby-action-error')?.focus();
     } finally {
       if (alive) busyId = '';
@@ -113,15 +83,15 @@
     <p>{strings.handleLabel}: <strong>{lobby.handle}</strong></p>
     <h2>{strings.activeRequirements}</h2>
     <p class="muted">{strings.resumeNote}</p>
-    {#if steps(lobby).length === 0}
+    {#if lobby.gates.length === 0}
       <p class="muted">{strings.noGates}</p>
     {:else}
       <ul class="gate-list">
-        {#each steps(lobby) as gate (gate.id)}
+        {#each lobby.gates as gate (gate.id)}
           <li>
             <div class="gate-main">
               <span>{gate.label}<br /><small class="muted">{gate.detail}</small></span>
-              {#if canAct(gate)}
+              {#if gate.state === 'action-needed' && gate.action}
                 <form
                   class="gate-form"
                   onsubmit={(e) => {
@@ -129,17 +99,20 @@
                     void complete(gate.id);
                   }}
                 >
+                  {#if gate.action.inputLabel}
                   <label for="gate-input-{gate.id}">{gate.action?.inputLabel ?? strings.codeLabel}</label>
                   <input
                     id="gate-input-{gate.id}"
                     value={inputs[gate.id] ?? ''}
-                    disabled={busyId === gate.id}
+                    disabled={!!busyId}
                     autocomplete="off"
                     oninput={(e) => {
                       inputs = { ...inputs, [gate.id]: (e.currentTarget as HTMLInputElement).value };
                     }}
                   />
+                  {/if}
                   <Button
+                    disabled={!!busyId}
                     type="submit"
                     variant="primary"
                     busy={busyId === gate.id}
@@ -179,9 +152,6 @@
       <a href="#/devices">{strings.manageDevices}</a>
     </div>
     <p class="muted">{strings.syncedPasskey}</p>
-    {#if serverPasskeyWarning(lobby)}
-      <Notice tone="warning">{serverPasskeyWarning(lobby)}</Notice>
-    {/if}
     {#if lobby.expiryWarning}
       <Notice tone="warning">{lobby.expiryWarning}</Notice>
     {/if}

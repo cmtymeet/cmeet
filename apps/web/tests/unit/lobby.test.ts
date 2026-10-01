@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
 import Lobby from '../../src/views/Lobby.svelte';
 import { createDevCmsg } from '../../../../core/src/dev-adapter.js';
@@ -6,19 +6,7 @@ import type { CmsgClient, LobbyState } from '../../../../core/src/cmsg.js';
 
 const JOIN = { voucher: 'VOUCHER-TEST-123', handle: 'lobby-member' };
 
-async function waitFor(assert: () => void, timeoutMs = 5000): Promise<void> {
-  const start = Date.now();
-  for (;;) {
-    try {
-      assert();
-      return;
-    } catch (e) {
-      if (Date.now() - start > timeoutMs) throw e;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      await tick();
-    }
-  }
-}
+const waitFor = vi.waitFor;
 
 function render(client: CmsgClient) {
   const target = document.createElement('div');
@@ -109,81 +97,35 @@ describe('lobby journey against the development adapter', () => {
     expect(stopped).toBe(true);
   });
 
-  it('completes an actionable gate and surfaces refusal with focus', async () => {
-    const client = createDevCmsg();
+  it('completes an actionable gate and focuses a refused answer', async () => {
+    const client = createDevCmsg({ gateState: 'action-needed' });
     await client.joinWithVoucher(JOIN);
-    const actionGate = {
-      id: 'email-code',
-      label: 'Email check',
-      detail: 'Enter the code sent to you.',
-      state: 'action-needed' as const,
-      action: { label: 'Send code', inputLabel: 'Code' },
-    };
-    const waitingGate = {
-      id: 'review',
-      label: 'Manual review',
-      detail: 'Waiting on the provider.',
-      state: 'waiting' as const,
-    };
-    let stored = [waitingGate, actionGate];
-    let refused = false;
-    const injected = client as CmsgClient & {
-      completeGate: (id: string, input: string) => Promise<LobbyState>;
-    };
-    injected.completeGate = async (id: string, input: string): Promise<LobbyState> => {
-      if (id !== 'email-code') throw new Error('Unknown step.');
-      if (input !== '123456') {
-        refused = true;
-        throw new Error('That code was not accepted.');
-      }
-      stored = [{ ...actionGate, state: 'complete' as const }, waitingGate];
-      const base = await client.lobby();
-      return { ...base, gates: [...stored] };
-    };
-    const withGates = {
-      ...client,
-      completeGate: injected.completeGate,
-      lobby: async (): Promise<LobbyState> => {
-        const base = await client.lobby();
-        return { ...base, gates: [...stored] };
-      },
-    } as CmsgClient;
-    const { target, cleanup } = render(withGates);
+    const { target, cleanup } = render(client);
     try {
-      await waitFor(() => {
-        expect(target.textContent).toMatch(/Waiting/);
-      });
-      // Waiting is distinct from action needed, never conflated.
-      expect(target.textContent).toMatch(/Action needed/);
-      const input = target.querySelector('#gate-input-email-code') as HTMLInputElement | null;
-      expect(input).not.toBeNull();
-      expect(target.textContent).toMatch(/Send code/);
-
-      input!.focus();
-      input!.value = 'wrong';
-      input!.dispatchEvent(new Event('input', { bubbles: true }));
-      target
-        .querySelector('form.gate-form')!
-        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-      await waitFor(() => {
-        expect(target.querySelector('#lobby-action-error [role="alert"]')).not.toBeNull();
-      });
-      expect(target.textContent).toMatch(/not accepted/);
-      expect(refused).toBe(true);
-      expect(document.activeElement?.id).toBe('lobby-action-error');
-
-      const retry = target.querySelector('#gate-input-email-code') as HTMLInputElement | null;
-      retry!.value = '123456';
-      retry!.dispatchEvent(new Event('input', { bubbles: true }));
+      await waitFor(() => expect(target.querySelector('input')).not.toBeNull());
+      const input = target.querySelector('input')!;
+      input.value = 'wrong'; input.dispatchEvent(new Event('input', { bubbles: true }));
       await tick();
-      target
-        .querySelector('form.gate-form')!
-        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-      await waitFor(() => {
-        expect(target.querySelector('#lobby-action-error')).toBeNull();
-      });
-    } finally {
-      cleanup();
-    }
+      target.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await waitFor(() => expect(document.activeElement?.id).toBe('lobby-action-error'));
+      expect(target.textContent).toContain('not accepted');
+      input.value = JOIN.voucher; input.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick();
+      target.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await waitFor(() => expect(target.querySelector('form')).toBeNull());
+      expect((await client.lobby()).gates[0]?.state).toBe('complete');
+    } finally { cleanup(); }
+  });
+
+  it('shows a waiting gate without inventing a completion action', async () => {
+    const client = createDevCmsg({ gateState: 'waiting' });
+    await client.joinWithVoucher(JOIN);
+    await client.publishProfile({ age: 34, neighbourhood: 'North' });
+    const { target, cleanup } = render(client);
+    try {
+      await waitFor(() => expect(target.textContent).toContain('Waiting'));
+      expect(target.querySelector('form')).toBeNull();
+      expect(target.querySelector('button')?.disabled).toBe(true);
+    } finally { cleanup(); }
   });
 });

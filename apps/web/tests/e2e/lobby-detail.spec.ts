@@ -7,6 +7,7 @@ test('lobby shows active steps and admits after the profile is published', async
   await expect(page.getByRole('heading', { name: 'Good conversations start with the right people.' })).toBeVisible({
     timeout: 15000,
   });
+  await page.getByRole('button', { name: 'Sign in / register' }).click();
   await page.getByLabel('Invitation voucher').fill('VOUCHER-TEST-123');
   await page.getByLabel(/Choose a handle/).fill('lobby-detail');
   await page.getByRole('button', { name: 'Continue to join' }).click();
@@ -15,7 +16,7 @@ test('lobby shows active steps and admits after the profile is published', async
   await expect(page.getByRole('heading', { name: 'Active requirements' })).toBeVisible();
   await expect(page.getByText('Complete the remaining requirements in any order.')).toBeVisible();
   await expect(page.getByText('Action needed')).toBeVisible();
-  await expect(page.getByText('cannot return')).toBeVisible();
+  await expect(page.getByText(/cannot return/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Enter forum when admitted' })).toBeDisabled();
 
   // Profile entry stays separate from the gates; devices link out.
