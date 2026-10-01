@@ -58,6 +58,8 @@ remains occupied until a response flushes. Initialization and each output have
 ten-second deadlines; inactive sessions expire after five minutes. Malformed,
 oversized, repeated in-flight request IDs and output failures close the session.
 Outstanding effects require reconciliation after cancellation or lost output.
+If the SDK suppresses a cancelled request's response, that request retains its
+admission slot until session close; repeated cancellation remains bounded.
 
 `tui` uses [Ratatui](https://docs.rs/ratatui/latest/ratatui/) and
 [Crossterm](https://docs.rs/crossterm/latest/crossterm/event/struct.EventStream.html).

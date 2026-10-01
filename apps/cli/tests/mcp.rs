@@ -109,8 +109,8 @@ async fn stalled_initialization_and_idle_sessions_do_not_live_forever() {
 }
 
 #[tokio::test]
-async fn eof_during_real_owner_call_reports_unknown_outcome() {
-    let host = Host::delayed(std::time::Duration::from_secs(2)).await;
+async fn eof_without_a_drained_owner_response_reports_unknown_outcome() {
+    let host = Host::delayed(std::time::Duration::from_secs(6)).await;
     let mut child = host.spawn("mcp", ORIGIN);
     let mut writer = child.stdin.take().unwrap();
     let mut reader = BufReader::new(child.stdout.take().unwrap());
@@ -119,4 +119,26 @@ async fn eof_during_real_owner_call_reports_unknown_outcome() {
     drop(writer);
     let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output()).await.unwrap().unwrap();
     assert_eq!(result.status.code(), Some(i32::from(cmsg::door::ErrorCode::Reconcile.exit_code())));
+}
+
+#[tokio::test]
+async fn sdk_request_cancellation_preserves_unknown_outcome_without_retry() {
+    let host = Host::delayed(std::time::Duration::from_secs(2)).await;
+    let mut child = host.spawn("mcp", ORIGIN);
+    let mut writer = child.stdin.take().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+    initialize(&mut writer, &mut reader).await;
+    send(&mut writer, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"runtime.status","arguments":{}}})).await;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while host.calls.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    send(&mut writer, json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1,"reason":"caller cancelled"}})).await;
+    send(&mut writer, json!({"jsonrpc":"2.0","id":2,"method":"ping"})).await;
+    assert_eq!(receive(&mut reader).await["id"], 2);
+    drop(writer);
+    let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output()).await.unwrap().unwrap();
+    assert_eq!(result.status.code(), Some(i32::from(cmsg::door::ErrorCode::Reconcile.exit_code())));
+    assert_eq!(host.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
