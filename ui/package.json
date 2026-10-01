@@ -1,0 +1,7 @@
+{
+  "name": "@cmeet/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared Svelte 5 components and white-label themes for cmeet apps."
+}

@@ -1,0 +1,6 @@
+/* Example white-label theme: a forest community. Override tokens only. */
+:root {
+  --cmeet-accent: #33523b;
+  --cmeet-accent-soft: #dfe9dc;
+  --cmeet-bg: #f2f4ec;
+}

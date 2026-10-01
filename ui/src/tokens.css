@@ -1,0 +1,43 @@
+/* White-label theme tokens. A community overrides these custom properties
+   in its own theme file (see themes/) without touching components. */
+
+:root {
+  --cmeet-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --cmeet-radius: 12px;
+  --cmeet-space: 1rem;
+
+  --cmeet-bg: #f6f4ee;
+  --cmeet-surface: #ffffff;
+  --cmeet-ink: #1d2a24;
+  --cmeet-muted: #5d6b63;
+  --cmeet-line: #dde3dc;
+
+  --cmeet-accent: #2f6b4f;
+  --cmeet-accent-ink: #ffffff;
+  --cmeet-accent-soft: #e3efe7;
+
+  --cmeet-warn-bg: #fdf3e3;
+  --cmeet-warn-ink: #7a4a00;
+  --cmeet-danger: #b3261e;
+  --cmeet-danger-bg: #fbeae9;
+
+  --cmeet-focus: #1a73e8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cmeet-bg: #121614;
+    --cmeet-surface: #1c211e;
+    --cmeet-ink: #e8ece9;
+    --cmeet-muted: #a7b3ab;
+    --cmeet-line: #2e3531;
+    --cmeet-accent: #7fc79b;
+    --cmeet-accent-ink: #10251d;
+    --cmeet-accent-soft: #24352c;
+    --cmeet-warn-bg: #3a2d12;
+    --cmeet-warn-ink: #f5c86e;
+    --cmeet-danger: #f2a49e;
+    --cmeet-danger-bg: #3d1f1c;
+    --cmeet-focus: #8ab4f8;
+  }
+}

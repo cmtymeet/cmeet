@@ -1,0 +1,6 @@
+/* Example white-label theme: a harbour community. Override tokens only. */
+:root {
+  --cmeet-accent: #245f7a;
+  --cmeet-accent-soft: #dcebf2;
+  --cmeet-bg: #f0f4f6;
+}

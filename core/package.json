@@ -1,0 +1,9 @@
+{
+  "name": "@cmeet/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thin shared client layer: TypeScript port of the cmsg local API plus an in-memory development adapter.",
+  "main": "./src/cmsg.ts",
+  "types": "./src/cmsg.ts"
+}
