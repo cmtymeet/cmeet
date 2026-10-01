@@ -31,3 +31,17 @@ to an explicit test/demo feature, and cannot satisfy production acceptance.
 CI runs stable Rust tests and requires exact 100% line and branch counts with
 cargo-llvm-cov. There are no production-code coverage exclusions. These tests
 establish shell I/O behavior only; the full product gate is [the toy](../../tests/toy/README.md).
+
+`cmeet invoke --endpoint http://127.0.0.1:PORT --origin ORIGIN --capability-fd N`
+reads one complete owner `Invocation` from stdin and emits its complete `Output`,
+including events. Input is forwarded without JSON reserialization. Domain exits
+come directly from `ErrorCode::exit_code`; output failure is exit 1 and never
+retries an action. Input, output and capability reads have ten-second deadlines.
+
+The trusted runtime passes an existing local client capability through an
+inherited private Unix pipe (descriptor 3 or higher), then closes its write end.
+Only the descriptor number appears in arguments. Regular files, stdin, environment
+variables and capability values in arguments are unsupported. The native client
+uses cmsg's loopback HTTP transport; it cannot mint authority. Real custody and
+pairing bootstrap remain owner integration work. The integration suite uses
+`Door::pair_client` only inside its trusted test host, not in the product binary.

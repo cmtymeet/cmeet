@@ -49,7 +49,7 @@ fn help_and_version_are_shell_operations_not_runtime_readiness() {
     assert!(
         String::from_utf8(output.stdout)
             .unwrap()
-            .contains("await an authorized cmsg runtime")
+            .contains("already paired cmsg runtime")
     );
 }
 

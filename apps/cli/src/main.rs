@@ -1,17 +1,32 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use cmeet::{Format, write_json};
-use cmsg::door::surface;
-use std::{io, process::ExitCode};
+use cmeet::{Format, runtime, write_json};
+use cmsg::door::{ErrorCode, Output, native::Client, surface};
+use std::{io, process::ExitCode, time::Duration};
 
 #[derive(Parser)]
-#[command(
-    version,
-    about = "cmeet member client",
-    after_help = "Runtime actions, TUI and MCP serving await an authorized cmsg runtime. API inspection does not establish product readiness."
-)]
+#[command(version, about = "cmeet member client", after_help = "Calls require an already paired cmsg runtime. Member bootstrap and production passkey custody are not yet integrated.")]
 struct Arguments {
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(clap::Args)]
+struct Connection {
+    /// Exact literal loopback HTTP base URL of the member's cmsg runtime.
+    #[arg(long)]
+    endpoint: String,
+    /// Origin bound by cmsg to this local client.
+    #[arg(long)]
+    origin: String,
+    /// Inherited private pipe containing the existing capability (never its value).
+    #[arg(long)]
+    capability_fd: u32,
+}
+
+impl Connection {
+    async fn connect(self) -> Result<Client, ErrorCode> {
+        Client::new(&self.endpoint, &self.origin, runtime::capability(self.capability_fd).await?)
+    }
 }
 
 #[derive(Subcommand)]
@@ -23,30 +38,56 @@ enum Command {
         #[arg(long)]
         pretty: bool,
     },
+    /// Send one complete raw cmsg Invocation from stdin; print its Output and events.
+    Invoke {
+        #[command(flatten)]
+        connection: Connection,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
-enum Projection {
-    Cli,
-    Mcp,
-    Openapi,
-    Bundle,
-}
+enum Projection { Cli, Mcp, Openapi, Bundle }
 
 fn main() -> ExitCode {
-    let Command::Api { projection, pretty } = Arguments::parse().command;
-    let value = match projection {
-        Projection::Cli => surface::cli_commands(),
-        Projection::Mcp => surface::mcp_tools(),
-        Projection::Openapi => surface::openapi(),
-        Projection::Bundle => surface::bundle(),
+    let command = Arguments::parse().command;
+    if let Command::Api { projection, pretty } = command {
+        let value = match projection {
+            Projection::Cli => surface::cli_commands(),
+            Projection::Mcp => surface::mcp_tools(),
+            Projection::Openapi => surface::openapi(),
+            Projection::Bundle => surface::bundle(),
+        };
+        let format = if pretty { Format::Pretty } else { Format::Json };
+        return match write_json(&mut io::stdout().lock(), &value, format) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(_) => { eprintln!("cmeet: output unavailable"); ExitCode::FAILURE }
+        };
+    }
+    let runtime = match tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(_) => { eprintln!("cmeet: runtime unavailable"); return ExitCode::from(ErrorCode::Unavailable.exit_code()); }
     };
-    let format = if pretty { Format::Pretty } else { Format::Json };
-    match write_json(&mut io::stdout().lock(), &value, format) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(_) => {
-            eprintln!("cmeet: output unavailable");
-            ExitCode::FAILURE
-        }
+    let code = runtime.block_on(run(command));
+    // Tokio standard I/O uses blocking tasks. A pipe whose writer never closes
+    // must not prevent process exit after the bounded read or cancellation.
+    runtime.shutdown_timeout(Duration::from_millis(100));
+    ExitCode::from(code)
+}
+
+async fn run(command: Command) -> u8 {
+    let Command::Invoke { connection } = command else { unreachable!() };
+    let operation = async {
+        let client = connection.connect().await?;
+        let bytes = runtime::input(tokio::io::stdin(), cmsg::door::MAX_BODY_BYTES).await?;
+        Ok::<_, ErrorCode>(runtime::invoke(&client, &bytes).await)
+    };
+    let result = tokio::select! {
+        result = operation => result,
+        _ = tokio::signal::ctrl_c() => Err(ErrorCode::Reconcile),
+    };
+    let output = match result { Ok(output) => output, Err(error) => Output::Error { error } };
+    match runtime::output(&mut tokio::io::stdout(), &output).await {
+        Ok(()) => runtime::exit_code(&output),
+        Err(_) => { eprintln!("cmeet: output unavailable; action outcome may require reconciliation"); 1 }
     }
 }
