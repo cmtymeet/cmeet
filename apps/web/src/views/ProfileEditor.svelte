@@ -31,7 +31,8 @@
 
   function setValue(key: string, raw: string) {
     const field = schema?.fields.find((f) => f.key === key);
-    values = { ...values, [key]: field?.kind === 'number' ? Number(raw) : raw };
+    const value = field?.kind === 'number' ? Number(raw) : field?.kind === 'yes-no' ? raw === 'Yes' : raw;
+    values = { ...values, [key]: value };
     saved = false;
   }
 
@@ -78,9 +79,11 @@
           <TextField
             id="profile-{field.key}"
             label={field.question}
-            value={values[field.key] ?? ''}
+            value={field.kind === 'yes-no'
+              ? (values[field.key] === true ? 'Yes' : values[field.key] === false ? 'No' : '')
+              : String(values[field.key] ?? '')}
             type={field.kind === 'number' ? 'number' : 'text'}
-            choices={field.kind === 'choice' ? field.choices : undefined}
+            choices={field.kind === 'choice' ? field.choices : field.kind === 'yes-no' ? ['Yes', 'No'] : undefined}
             multiline={field.kind === 'long-text' || field.kind === 'short-text'}
             required={field.required}
             min={field.min}

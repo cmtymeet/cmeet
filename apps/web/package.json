@@ -8,7 +8,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json --config ./svelte.config.js",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test:production": "playwright test --config playwright.production.config.ts"
