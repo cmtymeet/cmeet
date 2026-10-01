@@ -22,9 +22,12 @@ fixture and refuses to start without that runtime. The handwritten TypeScript
 port is temporary; generated registry integration is pending.
 
 The [Rust CLI](apps/cli/README.md) currently exports the actual cmsg registry's
-CLI, MCP and OpenAPI descriptions through `cmeet api`. Runtime commands, TUI and
-MCP serving still require the real authorized runtime. Shell tests and schema
-inspection are not a working community network.
+CLI, MCP and OpenAPI descriptions through `cmeet api`, invokes raw owner actions
+through `cmeet invoke`, serves them through `cmeet mcp`, and presents them through
+`cmeet tui`. Connected modes require an already paired owner runtime and a
+protected capability handoff; production bootstrap and member operations remain
+unavailable. Real Door/process adapter tests do not establish a working community
+network.
 
 The [toy acceptance contract](tests/toy/README.md) is **blocked**. Real voucher
 admission, proof-backed accounting, Tor conversations, groups, offline delivery
