@@ -1,8 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { CmsgClient, LobbyState } from '../../../../core/src/cmsg.js';
+  import type { CmsgClient, GateStep, LobbyState } from '../../../../core/src/cmsg.js';
   import { Button, Notice } from '../../../../ui/src/index.js';
-  import { en } from '../../../../ui/src/i18n/en.js';
+  import { lobbyStrings as strings } from '../strings/lobby.js';
+
+  // Forward-compatible presentation types. The core worker implements
+  // GateStep.action and completeGate; older backends omit both and the
+  // lobby still renders every returned step without inventing actions.
+  interface GateAction {
+    label: string;
+    inputLabel?: string;
+  }
+  type ActionableGate = GateStep & { action?: GateAction };
+  type LobbyClient = CmsgClient & {
+    completeGate?: (id: string, input: string) => Promise<LobbyState>;
+  };
+  type LobbyWarnings = LobbyState & { syncedPasskeyWarning?: string | null };
 
   interface Props {
     client: CmsgClient;
@@ -10,49 +23,222 @@
   let { client }: Props = $props();
 
   let lobby: LobbyState | null = $state(null);
-  let error = $state('');
+  let loadError = $state('');
+  let actionError = $state('');
+  let busyId = $state('');
+  let inputs: Record<string, string> = $state({});
+  let alive = true;
+
+  function steps(state: LobbyState | null): ActionableGate[] {
+    // The backend returns only active gates; render them exactly as given.
+    return ((state?.gates ?? []) as ActionableGate[]);
+  }
+
+  function serverPasskeyWarning(state: LobbyState | null): string | null {
+    const warning = (state as LobbyWarnings | null)?.syncedPasskeyWarning;
+    return typeof warning === 'string' && warning.length > 0 ? warning : null;
+  }
+
+  function statusLabel(gate: GateStep): string {
+    if (gate.state === 'complete') return strings.complete;
+    if (gate.state === 'waiting') return strings.waiting;
+    return strings.actionNeeded;
+  }
+
+  function canAct(gate: ActionableGate): boolean {
+    return (
+      gate.state === 'action-needed' &&
+      !!gate.action &&
+      typeof (client as LobbyClient).completeGate === 'function'
+    );
+  }
+
+  async function load() {
+    loadError = '';
+    try {
+      const state = await client.lobby();
+      if (!alive) return;
+      lobby = state;
+    } catch (e) {
+      if (!alive) return;
+      loadError = e instanceof Error ? e.message : strings.loadFailedFallback;
+      document.getElementById('lobby-load-error')?.focus();
+    }
+  }
+
+  async function complete(id: string) {
+    const runner = (client as LobbyClient).completeGate;
+    if (!runner) return;
+    busyId = id;
+    actionError = '';
+    try {
+      const next = await runner.call(client, id, inputs[id] ?? '');
+      if (!alive) return;
+      lobby = next;
+      inputs = { ...inputs, [id]: '' };
+    } catch (e) {
+      if (!alive) return;
+      actionError = e instanceof Error ? e.message : strings.refusedFallback;
+      document.getElementById('lobby-action-error')?.focus();
+    } finally {
+      if (alive) busyId = '';
+    }
+  }
 
   onMount(() => {
-    void client.lobby().then((state) => (lobby = state)).catch((e: Error) => (error = e.message));
+    alive = true;
+    void load();
     const stop = client.subscribe((event) => {
-      if (event.type === 'lobby') lobby = event.lobby;
+      if (event.type === 'lobby' && alive) lobby = event.lobby;
     });
-    return stop;
+    return () => {
+      alive = false;
+      stop();
+    };
   });
 </script>
 
-<section class="page" aria-labelledby="lobby-title">
-  <h1 id="lobby-title">{en.lobby.title}</h1>
-  <p>{en.lobby.lead}</p>
-  {#if error}<Notice tone="error">{error}</Notice>{/if}
+<section class="page lobby" aria-labelledby="lobby-title">
+  <h1 id="lobby-title">{strings.title}</h1>
+  <p>{strings.lead}</p>
+  {#if loadError}
+    <div id="lobby-load-error" tabindex="-1">
+      <Notice tone="error">{loadError}</Notice>
+    </div>
+    <div class="row">
+      <Button variant="primary" onclick={() => void load()}>{strings.retry}</Button>
+    </div>
+  {/if}
   {#if lobby}
-    <p>Handle: <strong>{lobby.handle}</strong></p>
-    <h2>Active requirements</h2>
+    <p>{strings.handleLabel}: <strong>{lobby.handle}</strong></p>
+    <h2>{strings.activeRequirements}</h2>
+    <p class="muted">{strings.resumeNote}</p>
+    {#if steps(lobby).length === 0}
+      <p class="muted">{strings.noGates}</p>
+    {:else}
+      <ul class="gate-list">
+        {#each steps(lobby) as gate (gate.id)}
+          <li>
+            <div class="gate-main">
+              <span>{gate.label}<br /><small class="muted">{gate.detail}</small></span>
+              {#if canAct(gate)}
+                <form
+                  class="gate-form"
+                  onsubmit={(e) => {
+                    e.preventDefault();
+                    void complete(gate.id);
+                  }}
+                >
+                  <label for="gate-input-{gate.id}">{gate.action?.inputLabel ?? strings.codeLabel}</label>
+                  <input
+                    id="gate-input-{gate.id}"
+                    value={inputs[gate.id] ?? ''}
+                    disabled={busyId === gate.id}
+                    autocomplete="off"
+                    oninput={(e) => {
+                      inputs = { ...inputs, [gate.id]: (e.currentTarget as HTMLInputElement).value };
+                    }}
+                  />
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    busy={busyId === gate.id}
+                    busyLabel={strings.working}
+                  >
+                    {gate.action?.label ?? strings.completeStep}
+                  </Button>
+                </form>
+              {/if}
+            </div>
+            <span class="gate-status" data-state={gate.state}>{statusLabel(gate)}</span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    {#if actionError}
+      <div id="lobby-action-error" tabindex="-1">
+        <Notice tone="error">{actionError}</Notice>
+      </div>
+    {/if}
+    {#if !lobby.profileComplete}
+      <h2>{strings.profileHeading}</h2>
+      <p class="muted">{strings.profileIncompleteNote}</p>
+      <div class="row">
+        <a href="#/profile">{strings.completeProfile}</a>
+      </div>
+    {/if}
+    <h2>{strings.devices}</h2>
     <ul class="gate-list">
-      {#each lobby.gates as gate}
+      {#each lobby.devices as device (device.id)}
         <li>
-          <span>{gate.label}<br /><small class="muted">{gate.detail}</small></span>
-          <span>{gate.state === 'complete' ? 'Complete' : 'Action needed'}</span>
+          <span>{device.name}{#if device.thisDevice} {strings.thisDevice}{/if}</span>
         </li>
       {/each}
     </ul>
-    <h2>{en.lobby.devices}</h2>
-    <ul class="gate-list">
-      {#each lobby.devices as device}
-        <li><span>{device.name}{#if device.thisDevice} (this device){/if}</span><a href="#/devices">Manage</a></li>
-      {/each}
-    </ul>
-    <p class="muted">Protect access: use a synced passkey or another device.</p>
-    {#if lobby.expiryWarning}<Notice tone="warning">{lobby.expiryWarning}</Notice>{/if}
     <div class="row">
-      <Button variant="primary" disabled={!lobby.admitted} onclick={() => (window.location.hash = '#/forum')}>
-        {en.lobby.enter}
-      </Button>
-      {#if !lobby.profileComplete}
-        <Button onclick={() => (window.location.hash = '#/profile')}>Complete profile</Button>
-      {/if}
+      <a href="#/devices">{strings.manageDevices}</a>
     </div>
-  {:else if !error}
-    <p aria-live="polite">{en.common.loading}</p>
+    <p class="muted">{strings.syncedPasskey}</p>
+    {#if serverPasskeyWarning(lobby)}
+      <Notice tone="warning">{serverPasskeyWarning(lobby)}</Notice>
+    {/if}
+    {#if lobby.expiryWarning}
+      <Notice tone="warning">{lobby.expiryWarning}</Notice>
+    {/if}
+    <div class="row">
+      <!-- Never derive admission from the step list: only lobby.admitted opens the forum. -->
+      <Button variant="primary" disabled={!lobby.admitted} onclick={() => (window.location.hash = '#/forum')}>
+        {strings.enter}
+      </Button>
+    </div>
+    {#if !lobby.admitted}
+      <p class="muted">{strings.notAdmittedNote}</p>
+    {/if}
+  {:else if !loadError}
+    <p aria-live="polite">{strings.loading}</p>
   {/if}
 </section>
+
+<style>
+  .lobby .gate-list li {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .lobby .gate-main {
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
+  .lobby .gate-status {
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .lobby .gate-status[data-state='complete'] {
+    color: var(--cmeet-accent);
+  }
+  .lobby .gate-form {
+    display: grid;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+    max-width: 24rem;
+  }
+  .lobby .gate-form label {
+    font-weight: 600;
+  }
+  .lobby .gate-form input {
+    font: inherit;
+    color: var(--cmeet-ink);
+    background: var(--cmeet-surface);
+    border: 1px solid var(--cmeet-line);
+    border-radius: var(--cmeet-radius);
+    padding: 0.55rem 0.7rem;
+    width: 100%;
+  }
+  .lobby .gate-form input:focus-visible {
+    outline: 3px solid var(--cmeet-focus);
+    outline-offset: 2px;
+  }
+  .lobby #lobby-load-error:focus,
+  .lobby #lobby-action-error:focus {
+    outline: none;
+  }
+</style>
