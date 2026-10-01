@@ -253,10 +253,7 @@ pub async fn serve(
     .await
     .map_err(runtime::unavailable)?
     .map_err(runtime::unavailable)?;
-    let reason = service
-        .waiting()
-        .await
-        .map_err(runtime::unavailable)?;
+    let reason = service.waiting().await.map_err(runtime::unavailable)?;
     if !pending.lock().await.is_empty() {
         return Err(ErrorCode::Reconcile);
     }

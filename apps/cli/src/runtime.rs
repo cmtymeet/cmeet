@@ -6,7 +6,9 @@ use zeroize::Zeroizing;
 
 /// Value-free boundary error conversion, shared by every I/O adapter. Input,
 /// capability and terminal diagnostics must never include upstream contents.
-pub(crate) fn unavailable<E>(_: E) -> ErrorCode { ErrorCode::Unavailable }
+pub(crate) fn unavailable<E>(_: E) -> ErrorCode {
+    ErrorCode::Unavailable
+}
 
 pub const IO_DEADLINE: Duration = Duration::from_secs(10);
 

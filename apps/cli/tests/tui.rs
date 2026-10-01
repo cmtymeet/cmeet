@@ -195,7 +195,7 @@ impl std::io::Write for WriterFailure {
 #[tokio::test]
 async fn terminal_write_failures_stop_before_any_owner_dispatch() {
     let host = Host::new().await;
-    for flushes_left in [0, 1] {
+    for flushes_left in [0, 2] {
         let backend = ratatui::backend::CrosstermBackend::new(WriterFailure { flushes_left });
         let mut terminal = Terminal::with_options(
             backend,
@@ -242,14 +242,44 @@ async fn keys_and_closed_input_during_real_pending_call_never_dispatch_twice() {
     }
 }
 
+struct AfterDispatch(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+impl std::io::Write for AfterDispatch {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.0.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        } else {
+            Ok(bytes.len())
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn output_failure_after_owner_response_requires_reconciliation() {
     use futures::StreamExt;
     let host = Host::new().await;
-    let backend = ratatui::backend::CrosstermBackend::new(WriterFailure { flushes_left: 2 });
-    let mut terminal = Terminal::with_options(backend, ratatui::TerminalOptions { viewport: ratatui::Viewport::Fixed(ratatui::layout::Rect::new(0, 0, 80, 24)) }).unwrap();
+    let backend = ratatui::backend::CrosstermBackend::new(AfterDispatch(host.calls.clone()));
+    let mut terminal = Terminal::with_options(
+        backend,
+        ratatui::TerminalOptions {
+            viewport: ratatui::Viewport::Fixed(ratatui::layout::Rect::new(0, 0, 80, 24)),
+        },
+    )
+    .unwrap();
     let events = futures::stream::iter([Ok(key(KeyCode::Enter))]).chain(futures::stream::pending());
-    let result = tokio::time::timeout(std::time::Duration::from_secs(10), session(&host.client(), &mut terminal, events, CancellationToken::new())).await.unwrap();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        session(
+            &host.client(),
+            &mut terminal,
+            events,
+            CancellationToken::new(),
+        ),
+    )
+    .await
+    .unwrap();
     assert!(matches!(result, Err(ErrorCode::Reconcile)));
     assert_eq!(host.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }

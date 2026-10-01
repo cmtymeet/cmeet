@@ -154,7 +154,11 @@ pub async fn session<B: Backend, E: Stream<Item = io::Result<Event>> + Unpin>(
     let mut response_not_shown = false;
     loop {
         terminal.draw(|frame| view.draw(frame)).map_err(|error| {
-            if response_not_shown { ErrorCode::Reconcile } else { runtime::unavailable(error) }
+            if response_not_shown {
+                ErrorCode::Reconcile
+            } else {
+                runtime::unavailable(error)
+            }
         })?;
         response_not_shown = false;
         let event = tokio::select! {
