@@ -1,25 +1,17 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import type { CmsgClient, ProfileSchema, ProfileValues, SchemaField } from '../../../../core/src/cmsg.js';
   import { Button, TextField, Notice, ProfilePreview } from '../../../../ui/src/index.js';
   import { adminSchemaStrings as s } from '../strings/admin-schema.js';
-
-  type AdminCapableClient = CmsgClient & {
-    signInRole?: (role: 'admin' | 'root') => Promise<void>;
-  };
 
   interface Props {
     client: CmsgClient;
   }
   let { client }: Props = $props();
-  const adminClient = client as AdminCapableClient;
-  const needsSignIn = typeof adminClient.signInRole === 'function';
-
   let schema: ProfileSchema | null = $state(null);
   let impact = $state('');
   let error = $state('');
   let dragging: string | null = $state(null);
-  let signedIn = $state(!needsSignIn);
+  let signedIn = $state(false);
   let signingIn = $state(false);
   let saving = $state(false);
   let draftCounter = $state(1);
@@ -30,16 +22,13 @@
     if (error && errorRegion) errorRegion.focus();
   });
 
-  onMount(() => {
-    if (!needsSignIn) void load();
-  });
-
   async function signIn() {
+    if (signingIn) return;
     error = '';
     impact = '';
     signingIn = true;
     try {
-      await adminClient.signInRole!('admin');
+      await client.signInRole('admin');
       signedIn = true;
       await load();
     } catch (e) {
@@ -54,7 +43,7 @@
     try {
       schema = await client.adminSchema();
     } catch (e) {
-      error = e instanceof Error ? e.message : s.loading;
+      error = e instanceof Error ? e.message : s.loadFailed;
     }
   }
 
@@ -134,6 +123,12 @@
     sampleValues = { ...sampleValues, [key]: raw };
   }
 
+  function setCoordinate(key: string, part: 'latitude' | 'longitude', raw: string) {
+    const previous = sampleValues[key];
+    const coords = typeof previous === 'object' ? previous : { latitude: NaN, longitude: NaN };
+    sampleValues = { ...sampleValues, [key]: { ...coords, [part]: raw === '' ? NaN : Number(raw) } };
+  }
+
   function sampleText(key: string, kind: SchemaField['kind']): string {
     const value = sampleValues[key];
     if (value === undefined) return '';
@@ -164,7 +159,7 @@
   }
 
   async function save() {
-    if (!schema) return;
+    if (!schema || saving) return;
     error = '';
     impact = '';
     saving = true;
@@ -173,7 +168,7 @@
       impact = s.impact(result.note, result.profilesNeedingChanges, result.grandfathered);
       schema = await client.adminSchema();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Saving the schema did not work.';
+      error = e instanceof Error ? e.message : s.saveFailed;
     } finally {
       saving = false;
     }
@@ -197,7 +192,7 @@
     </Button>
   {:else if schema}
     <div class="admin-grid">
-      <div class="admin-editor">
+      <fieldset class="admin-editor" disabled={saving}>
         <h2>{s.questionsHeading}</h2>
         <p class="muted">{s.reorderHelp}</p>
         <ol class="schema-list">
@@ -299,12 +294,20 @@
           <Button onclick={() => addQuestion()}>{s.addLabel}</Button>
           <Button variant="primary" busy={saving} busyLabel={s.saving} onclick={() => void save()}>{s.save}</Button>
         </div>
-      </div>
+      </fieldset>
       <div class="admin-preview">
         <h2>{s.preview}</h2>
+        <div class="preview-card"><ProfilePreview {schema} values={sampleValues} frontLabel={s.frontLabel} backLabel={s.backLabel} /></div>
         <h3>{s.sampleHeading}</h3>
         <p class="muted">{s.sampleHelp}</p>
         {#each schema.fields as field (field.key)}
+          {#if field.kind === 'location'}
+            {#each ['latitude', 'longitude'] as coordinate}
+              <TextField id={`sample-${field.key}-${coordinate}`} label={`${field.question} (${coordinate}, sample)`} type="number"
+                value={typeof sampleValues[field.key] === 'object' ? (sampleValues[field.key] as {latitude: number; longitude: number})[coordinate as 'latitude' | 'longitude'] : ''}
+                oninput={(value) => setCoordinate(field.key, coordinate as 'latitude' | 'longitude', value)} />
+            {/each}
+          {:else}
           <TextField
             id="sample-{field.key}"
             label={`${field.question} (sample)`}
@@ -314,10 +317,12 @@
             placeholder={s.samplePlaceholder}
             oninput={(v) => setSample(field.key, field.kind, v)}
           />
+          {/if}
         {/each}
-        <ProfilePreview schema={schema} values={sampleValues} frontLabel="Front: public profile" backLabel="Back: private profile" />
       </div>
     </div>
+  {:else if error}
+    <Button onclick={() => void load()}>{s.retry}</Button>
   {:else if !error}
     <p aria-live="polite">{s.loading}</p>
   {/if}
@@ -327,8 +332,10 @@
   .admin-grid {
     display: grid;
     gap: 0.9rem;
-    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
   }
+  .admin-editor { border: 0; padding: 0; margin: 0; min-width: 0; }
+  @media (min-width: 52rem) { .preview-card { position: sticky; top: 1rem; z-index: 1; background: var(--cmeet-surface); } }
   .schema-list {
     list-style: none;
     padding: 0;

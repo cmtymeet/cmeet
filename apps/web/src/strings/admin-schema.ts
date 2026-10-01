@@ -4,7 +4,7 @@
 
 export const adminSchemaStrings = {
   title: 'Profile schema',
-  lead: 'Edit community profile questions. Changes apply to new and updated profiles; the result below is reported by the API.',
+  lead: 'Edit community profile questions. Saved changes can affect existing profiles. Review the reported impact after saving.',
   signIn: 'Sign in as admin',
   signingIn: 'Signing in…',
   signInHelp: 'Admin actions need a fresh admin sign-in with your passkey.',
@@ -36,6 +36,11 @@ export const adminSchemaStrings = {
   impact: (note: string, profilesNeedingChanges: number, grandfathered: number) =>
     `${note} Profiles needing changes: ${profilesNeedingChanges}. Grandfathered: ${grandfathered}.`,
   loading: 'Loading…',
+  loadFailed: 'The schema could not be loaded.',
+  saveFailed: 'Saving the schema did not work.',
+  retry: 'Try again',
+  frontLabel: 'Front: public profile',
+  backLabel: 'Back: private profile',
 } as const;
 
 export type AdminSchemaStrings = typeof adminSchemaStrings;

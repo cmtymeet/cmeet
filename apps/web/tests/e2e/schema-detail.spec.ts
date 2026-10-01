@@ -5,6 +5,7 @@ async function join(page: import('@playwright/test').Page) {
   await expect(page.getByRole('heading', { name: 'Good conversations start with the right people.' })).toBeVisible({
     timeout: 15000,
   });
+  await page.getByRole('button', { name: 'Sign in / register' }).click();
   await page.getByLabel('Invitation voucher').fill('VOUCHER-TEST-123');
   await page.getByLabel(/Choose a handle/).fill('schema-member');
   await page.getByRole('button', { name: 'Continue to join' }).click();
@@ -18,9 +19,7 @@ test('schema detail editing with live sample preview', async ({ page }) => {
   await page.getByRole('link', { name: 'Schema' }).click();
   await expect(page.getByRole('heading', { name: 'Profile schema' })).toBeVisible();
 
-  // Future role-gated builds ask for an explicit admin sign-in first.
-  const signIn = page.getByRole('button', { name: 'Sign in as admin' });
-  if (await signIn.count()) await signIn.click();
+  await page.getByRole('button', { name: 'Sign in as admin' }).click();
 
   await expect(page.getByRole('heading', { name: 'Live preview' })).toBeVisible();
   await expect(page.locator('.schema-row').first()).toBeVisible();

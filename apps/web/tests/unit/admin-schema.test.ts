@@ -4,7 +4,7 @@ import AdminSchema from '../../src/views/AdminSchema.svelte';
 import { createDevCmsg } from '../../../../core/src/dev-adapter.js';
 import type { CmsgClient } from '../../../../core/src/cmsg.js';
 
-type TestClient = CmsgClient & { signInRole?: (role: 'admin' | 'root') => Promise<void> };
+type TestClient = CmsgClient;
 
 function render(client: CmsgClient) {
   const target = document.createElement('div');
@@ -50,6 +50,8 @@ describe('admin schema editor against the real development adapter', () => {
     const client = createDevCmsg();
     const { target, cleanup } = render(client);
     try {
+      await tick();
+      click(target.querySelector('button'));
       await waitFor(() => target.querySelectorAll('.schema-row').length > 0);
       expect(target.textContent).toMatch(/How old are you\?/);
 
@@ -83,6 +85,8 @@ describe('admin schema editor against the real development adapter', () => {
     const client = createDevCmsg();
     const { target, cleanup } = render(client);
     try {
+      await tick();
+      click(target.querySelector('button'));
       await waitFor(() => target.querySelectorAll('.schema-row').length > 0);
       const before = target.querySelectorAll('.schema-row').length;
 
@@ -127,6 +131,8 @@ describe('admin schema editor against the real development adapter', () => {
     const client = createDevCmsg();
     const { target, cleanup } = render(client);
     try {
+      await tick();
+      click(target.querySelector('button'));
       await waitFor(() => target.querySelector('#choices-neighbourhood') !== null);
       // Preview starts empty: no personal fixture defaults.
       expect(target.textContent).not.toMatch(/34/);
@@ -191,6 +197,7 @@ describe('admin schema editor against the real development adapter', () => {
     const gated: TestClient = {
       ...real,
       signInRole: async () => {
+        await real.signInRole('admin');
         signed = true;
       },
     };
