@@ -13,6 +13,7 @@ permissions:
 
 concurrency:
   group: cmeet-implementation
+  queue: max
   cancel-in-progress: false
 
 env:
@@ -34,11 +35,16 @@ jobs:
           mkdir -p evidence
           rustc --version --verbose > evidence/rustc.txt
           date -u +%FT%TZ > evidence/resolved-at.txt
+          : > evidence/resolved-roots.txt
+          failed=0
           for root in apps/cli native/backend .ci/accounting-native; do
-            if test -f "$root/Cargo.toml"; then
-              cargo update --manifest-path "$root/Cargo.toml"
+            if cargo update --manifest-path "$root/Cargo.toml"; then
+              printf '%s\n' "$root" >> evidence/resolved-roots.txt
+            else
+              failed=1
             fi
           done
+          exit "$failed"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -52,6 +58,7 @@ jobs:
           retention-days: 7
   dependency-policy:
     needs: resolve
+    if: always() && !cancelled()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -65,6 +72,7 @@ jobs:
       - run: python3 .ci/policy/check-first-party.py
   check:
     needs: [resolve, dependency-policy]
+    if: always() && !cancelled() && needs.dependency-policy.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -87,18 +95,23 @@ jobs:
             .ci/accounting-native
       - name: Stable format, lint and real tests
         run: |
+          failed=0
           for root in apps/cli native/backend .ci/accounting-native; do
-            if test -f "$root/Cargo.toml"; then
-              cargo fmt --manifest-path "$root/Cargo.toml" --check
-              cargo clippy --manifest-path "$root/Cargo.toml" --locked --all-targets -- -D warnings
-              cargo test --manifest-path "$root/Cargo.toml" --locked --all-targets
+            if grep -Fxq -- "$root" evidence/resolved-roots.txt; then
+              cargo fmt --manifest-path "$root/Cargo.toml" --check || failed=1
+              cargo clippy --manifest-path "$root/Cargo.toml" --locked --all-targets -- -D warnings || failed=1
+              cargo test --manifest-path "$root/Cargo.toml" --locked --all-targets || failed=1
+            else
+              echo "::error::Root did not resolve: $root"
+              failed=1
             fi
           done
+          exit "$failed"
       - name: Retain exact formatting suggestions
         if: failure()
         run: |
           for root in apps/cli native/backend .ci/accounting-native; do
-            if test -f "$root/Cargo.toml"; then cargo fmt --manifest-path "$root/Cargo.toml"; fi
+            if grep -Fxq -- "$root" evidence/resolved-roots.txt; then cargo fmt --manifest-path "$root/Cargo.toml"; fi
           done
           git diff > formatting.patch
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -108,7 +121,7 @@ jobs:
           path: formatting.patch
   coverage:
     needs: [resolve, check]
-    if: always() && needs.resolve.result == 'success'
+    if: always() && !cancelled()
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -136,7 +149,7 @@ jobs:
           mkdir -p coverage
           failed=0
           for root in apps/cli native/backend .ci/accounting-native; do
-            if test -f "$root/Cargo.toml"; then
+            if grep -Fxq -- "$root" evidence/resolved-roots.txt; then
               report="coverage/$(basename "$root").json"
               if cargo llvm-cov --manifest-path "$root/Cargo.toml" --locked --all-targets --branch --json --output-path "$report"; then
                 cargo llvm-cov report --manifest-path "$root/Cargo.toml" --branch --text --output-path "coverage/$(basename "$root").txt" || failed=1
@@ -144,6 +157,9 @@ jobs:
               else
                 failed=1
               fi
+            else
+              echo "::error::No coverage for unresolved root: $root"
+              failed=1
             fi
           done
           exit "$failed"

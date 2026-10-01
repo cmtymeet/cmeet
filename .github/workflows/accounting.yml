@@ -27,6 +27,7 @@ permissions:
   actions: read
 concurrency:
   group: cmeet-implementation
+  queue: max
   cancel-in-progress: false
 jobs:
   accounting:

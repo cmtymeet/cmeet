@@ -40,7 +40,8 @@ conformance and Tor-population churn are retained separately. Synthetic network
 exhaustion tests do not replace real transport or browser evidence. Build outputs
 are files or OCI archives; no registry publication is required.
 
-Integration currently awaits the cmsg registry and generated consumer API,
+The cmsg registry and static generated descriptions are available; its live
+domain actions and authorized consumer bootstrap are not. Integration also awaits
 Foyer/cvld G2/G3, forum public-record admission, Inbox/Groups composition,
 message-based Mesh and DHT-backed Vault restore. Exact revision/run evidence
 must accompany each executed stage. Until these ports are supplied, this table

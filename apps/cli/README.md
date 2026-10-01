@@ -5,8 +5,10 @@ JSON input/output plumbing. It cannot yet join a community or run member actions
 
 `cmeet api [cli|mcp|openapi|bundle] [--pretty]` exports the corresponding cmsg-owned
 description unchanged. `api mcp` exports tool descriptions; it is not an MCP
-server. TUI, MCP serving and action dispatch await the authorized runtime and
-owner-defined exits. No local client capability is minted by this program.
+server. TUI, MCP serving and action dispatch await the authorized runtime.
+cmsg owns the domain exit mapping; these surfaces must use its `exit_code`
+method when dispatch becomes available. No local client capability is minted
+by this program.
 
 Action names, schemas, role/scope checks, errors, events and exits come from
 cmsg. Member actions will wait for real Mesh readiness. Admin and root actions use
