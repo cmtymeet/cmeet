@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use support::{Host, ORIGIN};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-async fn receive(reader: &mut BufReader<tokio::process::ChildStdout>) -> Value {
+async fn receive(reader: &mut (impl tokio::io::AsyncBufRead + Unpin)) -> Value {
     let mut line = String::new();
     tokio::time::timeout(
         std::time::Duration::from_secs(15),
@@ -16,15 +16,15 @@ async fn receive(reader: &mut BufReader<tokio::process::ChildStdout>) -> Value {
     .unwrap();
     serde_json::from_str(&line).expect("one MCP JSON-RPC response")
 }
-async fn send(writer: &mut tokio::process::ChildStdin, value: Value) {
+async fn send(writer: &mut (impl tokio::io::AsyncWrite + Unpin), value: Value) {
     writer
         .write_all(format!("{value}\n").as_bytes())
         .await
         .unwrap();
 }
 async fn initialize(
-    writer: &mut tokio::process::ChildStdin,
-    reader: &mut BufReader<tokio::process::ChildStdout>,
+    writer: &mut (impl tokio::io::AsyncWrite + Unpin),
+    reader: &mut (impl tokio::io::AsyncBufRead + Unpin),
 ) {
     send(writer, json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
         "protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"boundary-test","version":"1"}
@@ -235,4 +235,70 @@ async fn sdk_request_cancellation_preserves_unknown_outcome_without_retry() {
         Some(i32::from(cmsg::door::ErrorCode::Reconcile.exit_code()))
     );
     assert_eq!(host.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn missing_original_arguments_on_a_different_sdk_transport_refuse_dispatch() {
+    use rmcp::ServiceExt;
+    let host = Host::new().await;
+    let (server_io, client_io) = tokio::io::duplex(16384);
+    let server = cmeet::mcp::Server::new(host.client());
+    let task = tokio::spawn(async move { server.serve(server_io).await.unwrap().waiting().await.unwrap() });
+    let (read, mut writer) = tokio::io::split(client_io);
+    let mut reader = BufReader::new(read);
+    initialize(&mut writer, &mut reader).await;
+    send(&mut writer, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"runtime.status","arguments":{}}})).await;
+    assert_eq!(receive(&mut reader).await["error"]["code"], -32600);
+    assert_eq!(host.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    drop(writer); drop(reader);
+    tokio::time::timeout(std::time::Duration::from_secs(10), task).await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn invalid_initialization_and_session_interrupt_have_nonzero_exits() {
+    let host = Host::new().await;
+    let mut child = host.spawn("mcp", ORIGIN);
+    child.stdin.take().unwrap().write_all(b"not JSON\n").await.unwrap();
+    let result = child.wait_with_output().await.unwrap();
+    assert!(!result.status.success());
+    let mut child = host.spawn("mcp", ORIGIN);
+    let mut writer = child.stdin.take().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+    initialize(&mut writer, &mut reader).await;
+    assert!(std::process::Command::new("kill").args(["-INT", &child.id().unwrap().to_string()]).status().unwrap().success());
+    let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output()).await.unwrap().unwrap();
+    assert_eq!(result.status.code(), Some(i32::from(cmsg::door::ErrorCode::Reconcile.exit_code())));
+}
+
+struct FailingReader<R> {
+    inner: R,
+    fail: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+impl<R: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for FailingReader<R> {
+    fn poll_read(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>, buffer: &mut tokio::io::ReadBuf<'_>) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        assert!(!this.fail.load(std::sync::atomic::Ordering::SeqCst), "transport task failure");
+        std::pin::Pin::new(&mut this.inner).poll_read(cx, buffer)
+    }
+}
+
+#[tokio::test]
+async fn an_sdk_service_task_failure_is_never_success() {
+    let host = Host::new().await;
+    let (server_io, client_io) = tokio::io::duplex(16384);
+    let (server_read, server_write) = tokio::io::split(server_io);
+    let fail = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reader = FailingReader { inner: server_read, fail: fail.clone() };
+    let task = tokio::spawn(cmeet::mcp::serve(host.client(), reader, server_write, tokio_util::sync::CancellationToken::new()));
+    let (read, mut writer) = tokio::io::split(client_io);
+    let mut reader = BufReader::new(read);
+    initialize(&mut writer, &mut reader).await;
+    // Confirm the initialized notification has been consumed before injecting
+    // a transport-task panic into the SDK's running service.
+    send(&mut writer, json!({"jsonrpc":"2.0","id":1,"method":"ping"})).await;
+    assert_eq!(receive(&mut reader).await["id"], 1);
+    fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    send(&mut writer, json!({"jsonrpc":"2.0","id":2,"method":"ping"})).await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), task).await.unwrap().unwrap();
+    assert!(matches!(result, Err(cmsg::door::ErrorCode::Unavailable)));
 }

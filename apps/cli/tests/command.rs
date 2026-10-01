@@ -88,10 +88,27 @@ fn output_failure_does_not_report_success() {
 #[test]
 fn connected_modes_refuse_invalid_capability_channels_before_protocol_output() {
     for mode in ["invoke", "mcp", "tui"] {
-        let output = cmeet().args([mode, "--endpoint", "http://127.0.0.1:1", "--origin", "https://client.example", "--capability-fd", "0"]).output().unwrap();
-        assert_eq!(output.status.code(), Some(i32::from(cmsg::door::ErrorCode::Unauthorized.exit_code())));
+        let output = cmeet()
+            .args([
+                mode,
+                "--endpoint",
+                "http://127.0.0.1:1",
+                "--origin",
+                "https://client.example",
+                "--capability-fd",
+                "0",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(i32::from(cmsg::door::ErrorCode::Unauthorized.exit_code()))
+        );
         if mode == "invoke" {
-            assert_eq!(serde_json::from_slice::<Value>(&output.stdout).unwrap()["error"], "unauthorized");
+            assert_eq!(
+                serde_json::from_slice::<Value>(&output.stdout).unwrap()["error"],
+                "unauthorized"
+            );
         } else {
             assert!(output.stdout.is_empty());
             assert!(!output.stderr.is_empty());

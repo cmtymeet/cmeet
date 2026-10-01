@@ -165,8 +165,17 @@ async fn capability_refuses_a_pipe_owned_by_another_user() {
     let (read, _write) = rustix::pipe::pipe().unwrap();
     rustix::fs::fchmod(&read, rustix::fs::Mode::from_raw_mode(0o644)).unwrap();
     let path = format!("/proc/{}/fd/{}", std::process::id(), read.as_raw_fd());
-    assert!(std::process::Command::new("sudo").args(["-n", "chown", "65534", &path]).status().unwrap().success());
-    assert!(matches!(runtime::capability(read.as_raw_fd() as u32).await, Err(ErrorCode::Unauthorized)));
+    assert!(
+        std::process::Command::new("sudo")
+            .args(["-n", "chown", "65534", &path])
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(matches!(
+        runtime::capability(read.as_raw_fd() as u32).await,
+        Err(ErrorCode::Unauthorized)
+    ));
 }
 
 #[tokio::test]
@@ -174,11 +183,48 @@ async fn cancellation_during_protected_handoff_never_waits_for_its_writer() {
     let (read, write) = rustix::pipe::pipe().unwrap();
     rustix::io::fcntl_setfd(&write, rustix::io::FdFlags::CLOEXEC).unwrap();
     let child = tokio::process::Command::new(env!("CARGO_BIN_EXE_cmeet"))
-        .args(["invoke", "--endpoint", "http://127.0.0.1:1", "--origin", ORIGIN, "--capability-fd", &read.as_raw_fd().to_string()])
-        .stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true).spawn().unwrap();
+        .args([
+            "invoke",
+            "--endpoint",
+            "http://127.0.0.1:1",
+            "--origin",
+            ORIGIN,
+            "--capability-fd",
+            &read.as_raw_fd().to_string(),
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-    assert!(std::process::Command::new("kill").args(["-INT", &child.id().unwrap().to_string()]).status().unwrap().success());
-    let result = tokio::time::timeout(std::time::Duration::from_secs(2), child.wait_with_output()).await.unwrap().unwrap();
-    assert_eq!(result.status.code(), Some(i32::from(ErrorCode::Reconcile.exit_code())));
+    assert!(
+        std::process::Command::new("kill")
+            .args(["-INT", &child.id().unwrap().to_string()])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), child.wait_with_output())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(i32::from(ErrorCode::Reconcile.exit_code()))
+    );
     drop(write);
+}
+
+#[tokio::test]
+async fn private_handoff_waits_for_eof_after_partial_readiness() {
+    let host = Host::new().await;
+    let (read, write) = rustix::pipe::pipe().unwrap();
+    host.write_capability(&write);
+    let close = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        drop(write);
+    });
+    assert!(runtime::capability(read.as_raw_fd() as u32).await.is_ok());
+    close.await.unwrap();
 }

@@ -11,14 +11,23 @@ import sys
 import termios
 import time
 
-binary, *args = sys.argv[1:]
+binary, mode, *args = sys.argv[1:]
 fd = int(args[args.index('--capability-fd') + 1])
 commands = json.loads(subprocess.check_output([binary, 'api']))['commands']
 status_index = next(i for i, action in enumerate(commands) if action['action'] == 'runtime.status')
 master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 160, 0, 0))
 before = termios.tcgetattr(slave)
-child = subprocess.Popen([binary, *args], stdin=slave, stdout=slave, stderr=subprocess.PIPE, pass_fds=(fd,))
+child = subprocess.Popen([binary, *args], stdin=slave, stdout=slave if mode == 'terminal-test' else subprocess.PIPE, stderr=subprocess.PIPE, pass_fds=(fd,))
+if mode == 'terminal-output-test':
+    output, errors = child.communicate(timeout=12)
+    assert child.returncode == 69, child.returncode
+    assert output == b''
+    assert errors
+    assert termios.tcgetattr(slave) == before
+    os.close(master)
+    os.close(slave)
+    sys.exit(0)
 os.close(fd)
 captured = bytearray()
 

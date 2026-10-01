@@ -108,23 +108,29 @@ impl Host {
         .unwrap()
     }
 
+    #[allow(dead_code)]
+    pub fn write_capability(&self, fd: &impl std::os::fd::AsFd) {
+        rustix::io::write(fd, self.token.expose_for_transport().as_bytes()).unwrap();
+    }
+
     pub fn spawn(&self, command: &str, origin: &str) -> Child {
         // Anonymous OS pipe is the same protected handoff the product accepts.
         // The child inherits only the read end, so it can observe EOF.
         let (read, write) = rustix::pipe::pipe().unwrap();
         rustix::io::fcntl_setfd(&write, rustix::io::FdFlags::CLOEXEC).unwrap();
-        let mut child = if command == "terminal-test" {
+        let mut child = if command.starts_with("terminal-") {
             let mut wrapper = Command::new("python3");
             wrapper.args([
                 concat!(env!("CARGO_MANIFEST_DIR"), "/tests/terminal.py"),
                 env!("CARGO_BIN_EXE_cmeet"),
             ]);
+            wrapper.arg(command);
             wrapper
         } else {
             Command::new(env!("CARGO_BIN_EXE_cmeet"))
         };
         child.args([
-            if command == "terminal-test" {
+            if command.starts_with("terminal-") {
                 "tui"
             } else {
                 command
