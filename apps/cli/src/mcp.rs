@@ -3,13 +3,31 @@
 use crate::runtime::{self, IO_DEADLINE};
 use cmsg::door::{ErrorCode, Output, catalog, native::Client, surface};
 use futures::{SinkExt, StreamExt};
-use rmcp::{McpError, RoleServer, ServerHandler, ServiceExt, model::*, service::RequestContext,
-    transport::{Transport, async_rw::JsonRpcMessageCodec}};
+use rmcp::{
+    ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
+    model::*,
+    service::RequestContext,
+    transport::{Transport, async_rw::JsonRpcMessageCodec},
+};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use std::{collections::HashSet, io, sync::{Arc, atomic::{AtomicBool, Ordering}}, time::Duration};
-use tokio::{io::{AsyncRead, AsyncWrite}, sync::Mutex};
-use tokio_util::{codec::{FramedRead, FramedWrite}, sync::CancellationToken};
+use std::{
+    collections::HashSet,
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    sync::Mutex,
+};
+use tokio_util::{
+    codec::{FramedRead, FramedWrite},
+    sync::CancellationToken,
+};
 
 pub const MAX_FRAME_BYTES: usize = cmsg::door::MAX_BODY_BYTES + 8192;
 pub const MAX_PENDING: usize = 32;
@@ -24,14 +42,18 @@ struct RawArguments(Arc<str>);
 fn decode(raw: &str) -> Result<ClientJsonRpcMessage, serde_json::Error> {
     #[derive(Deserialize)]
     struct Envelope {
-        #[serde(rename = "jsonrpc")] _jsonrpc: String,
-        #[serde(rename = "id")] _id: Option<Box<RawValue>>,
-        #[serde(rename = "method")] _method: Option<String>,
+        #[serde(rename = "jsonrpc")]
+        _jsonrpc: String,
+        #[serde(rename = "id")]
+        _id: Option<Box<RawValue>>,
+        #[serde(rename = "method")]
+        _method: Option<String>,
         params: Option<Box<RawValue>>,
     }
     #[derive(Deserialize)]
     struct Call {
-        #[serde(rename = "name")] _name: String,
+        #[serde(rename = "name")]
+        _name: String,
         arguments: Option<Box<RawValue>>,
     }
     let envelope: Envelope = serde_json::from_str(raw)?;
@@ -39,22 +61,33 @@ fn decode(raw: &str) -> Result<ClientJsonRpcMessage, serde_json::Error> {
     if let JsonRpcMessage::Request(request) = &mut message
         && let ClientRequest::CallToolRequest(call) = &mut request.request
     {
-        let params: Call = serde_json::from_str(envelope.params.as_deref().map_or("{}", RawValue::get))?;
-        call.extensions.insert(RawArguments(Arc::from(params.arguments.as_deref().map_or("{}", RawValue::get))));
+        let params: Call =
+            serde_json::from_str(envelope.params.as_deref().map_or("{}", RawValue::get))?;
+        call.extensions.insert(RawArguments(Arc::from(
+            params.arguments.as_deref().map_or("{}", RawValue::get),
+        )));
     }
     Ok(message)
 }
 
-pub struct Server { client: Client }
+pub struct Server {
+    client: Client,
+}
 impl Server {
-    pub fn new(client: Client) -> Self { Self { client } }
+    pub fn new(client: Client) -> Self {
+        Self { client }
+    }
 }
 impl ServerHandler for Server {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("cmeet", env!("CARGO_PKG_VERSION")))
     }
-    async fn list_tools(&self, request: Option<PaginatedRequestParams>, _: RequestContext<RoleServer>) -> Result<ListToolsResult, McpError> {
+    async fn list_tools(
+        &self,
+        request: Option<PaginatedRequestParams>,
+        _: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
         if request.and_then(|r| r.cursor).is_some() {
             return Err(McpError::invalid_params("Unknown cursor", None));
         }
@@ -62,23 +95,39 @@ impl ServerHandler for Server {
             .map_err(|_| McpError::internal_error("Registry unavailable", None))?;
         Ok(ListToolsResult::with_all_items(tools))
     }
-    async fn call_tool(&self, request: CallToolRequestParams, context: RequestContext<RoleServer>) -> Result<CallToolResponse, McpError> {
-        let action = catalog().into_iter().find(|a| a.action == request.name)
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, McpError> {
+        let action = catalog()
+            .into_iter()
+            .find(|a| a.action == request.name)
             .ok_or_else(|| McpError::invalid_params("Unknown owner action", None))?;
-        let raw = context.extensions.get::<RawArguments>()
+        let raw = context
+            .extensions
+            .get::<RawArguments>()
             .ok_or_else(|| McpError::invalid_request("Original arguments unavailable", None))?;
         // Encode only the wrapper. RawValue keeps all original body bytes,
         // including duplicate fields, for the owner's typed refusal.
         let name = serde_json::to_string(&action.action).expect("a string encodes as JSON");
-        let bytes = format!("{{\"action\":{name},\"version\":{},\"body\":{}}}", action.version, raw.0);
+        let bytes = format!(
+            "{{\"action\":{name},\"version\":{},\"body\":{}}}",
+            action.version, raw.0
+        );
         let output = tokio::select! {
             biased;
             _ = context.ct.cancelled() => Output::Error { error: ErrorCode::Reconcile },
             output = runtime::invoke(&self.client, bytes.as_bytes()) => output,
         };
         let error = matches!(output, Output::Error { .. });
-        let value = serde_json::to_value(output).map_err(|_| McpError::internal_error("Output unavailable", None))?;
-        let result = if error { CallToolResult::structured_error(value) } else { CallToolResult::structured(value) };
+        let value = serde_json::to_value(output)
+            .map_err(|_| McpError::internal_error("Output unavailable", None))?;
+        let result = if error {
+            CallToolResult::structured_error(value)
+        } else {
+            CallToolResult::structured(value)
+        };
         Ok(result.into())
     }
 }
@@ -94,9 +143,14 @@ struct BoundedTransport<R, W> {
     failed: Arc<AtomicBool>,
     cancel: CancellationToken,
 }
-impl<R: AsyncRead + Unpin + Send, W: AsyncWrite + Unpin + Send + 'static> Transport<RoleServer> for BoundedTransport<R, W> {
+impl<R: AsyncRead + Unpin + Send, W: AsyncWrite + Unpin + Send + 'static> Transport<RoleServer>
+    for BoundedTransport<R, W>
+{
     type Error = io::Error;
-    fn send(&mut self, item: ServerJsonRpcMessage) -> impl Future<Output = io::Result<()>> + Send + 'static {
+    fn send(
+        &mut self,
+        item: ServerJsonRpcMessage,
+    ) -> impl Future<Output = io::Result<()>> + Send + 'static {
         let writer = self.writer.clone();
         let pending = self.pending.clone();
         let failed = self.failed.clone();
@@ -135,8 +189,12 @@ impl<R: AsyncRead + Unpin + Send, W: AsyncWrite + Unpin + Send + 'static> Transp
             let admitted = if let JsonRpcMessage::Request(request) = &message {
                 let mut pending = self.pending.lock().await;
                 pending.len() < MAX_PENDING && pending.insert(request.id.clone())
-            } else { true };
-            if admitted { return Some(message); }
+            } else {
+                true
+            };
+            if admitted {
+                return Some(message);
+            }
         }
         self.failed.store(true, Ordering::Relaxed);
         self.cancel.cancel();

@@ -5,7 +5,11 @@ use std::{io, process::ExitCode, time::Duration};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Parser)]
-#[command(version, about = "cmeet member client", after_help = "Calls require an already paired cmsg runtime. Member bootstrap and production passkey custody are not yet integrated.")]
+#[command(
+    version,
+    about = "cmeet member client",
+    after_help = "Calls require an already paired cmsg runtime. Member bootstrap and production passkey custody are not yet integrated."
+)]
 struct Arguments {
     #[command(subcommand)]
     command: Command,
@@ -25,7 +29,11 @@ struct Connection {
 }
 impl Connection {
     async fn connect(self) -> Result<Client, ErrorCode> {
-        Client::new(&self.endpoint, &self.origin, runtime::capability(self.capability_fd).await?)
+        Client::new(
+            &self.endpoint,
+            &self.origin,
+            runtime::capability(self.capability_fd).await?,
+        )
     }
 }
 
@@ -91,7 +99,10 @@ fn main() -> ExitCode {
 async fn run(session: Session, connection: Connection) -> u8 {
     let cancel = CancellationToken::new();
     let signal = cancel.clone();
-    let signal_task = tokio::spawn(async move { let _ = tokio::signal::ctrl_c().await; signal.cancel(); });
+    let signal_task = tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        signal.cancel();
+    });
     let client = tokio::select! {
         client = connection.connect() => client,
         _ = cancel.cancelled() => Err(ErrorCode::Reconcile),
