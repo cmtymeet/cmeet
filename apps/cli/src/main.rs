@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use cmeet::{Format, mcp, runtime, write_json};
+use cmeet::{Format, mcp, runtime, tui, write_json};
 use cmsg::door::{ErrorCode, Output, native::Client, surface};
 use std::{io, process::ExitCode, time::Duration};
 use tokio_util::sync::CancellationToken;
@@ -43,6 +43,11 @@ enum Command {
         #[command(flatten)]
         connection: Connection,
     },
+    /// Explore the owner registry and invoke actions in an interactive terminal.
+    Tui {
+        #[command(flatten)]
+        connection: Connection,
+    },
     /// Serve the owner's tools through MCP on bounded stdin/stdout.
     Mcp {
         #[command(flatten)]
@@ -53,7 +58,7 @@ enum Command {
 #[derive(Clone, Copy, ValueEnum)]
 enum Projection { Cli, Mcp, Openapi, Bundle }
 
-enum Session { Invoke, Mcp }
+enum Session { Invoke, Mcp, Tui }
 
 fn main() -> ExitCode {
     let (session, connection) = match Arguments::parse().command {
@@ -72,6 +77,7 @@ fn main() -> ExitCode {
         }
         Command::Invoke { connection } => (Session::Invoke, connection),
         Command::Mcp { connection } => (Session::Mcp, connection),
+        Command::Tui { connection } => (Session::Tui, connection),
     };
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
         .expect("cmeet: runtime unavailable");
@@ -105,6 +111,16 @@ async fn run(session: Session, connection: Connection) -> u8 {
             match runtime::output(&mut tokio::io::stdout(), &output).await {
                 Ok(()) => runtime::exit_code(&output),
                 Err(_) => { eprintln!("cmeet: output unavailable; action outcome may require reconciliation"); 1 }
+            }
+        }
+        Session::Tui => {
+            let result = match client {
+                Ok(client) => tui::run(client, cancel).await,
+                Err(error) => Err(error),
+            };
+            match result {
+                Ok(code) => code,
+                Err(error) => { eprintln!("cmeet: terminal unavailable; outstanding actions may require reconciliation"); error.exit_code() }
             }
         }
         Session::Mcp => {

@@ -61,14 +61,23 @@ impl Host {
         }
     }
 
+    #[allow(dead_code)] // Shared real fixture used by distinct integration binaries.
+    pub fn client(&self) -> native::Client {
+        native::Client::new(&self.endpoint, ORIGIN, cmsg::door::ClientToken::from_protected_transport(zeroize::Zeroizing::new(self.token.expose_for_transport().as_bytes().to_vec())).unwrap()).unwrap()
+    }
+
     pub fn spawn(&self, command: &str, origin: &str) -> Child {
         // Anonymous OS pipe is the same protected handoff the product accepts.
         // The child inherits only the read end, so it can observe EOF.
         let (read, write) = rustix::pipe::pipe().unwrap();
         rustix::io::fcntl_setfd(&write, rustix::io::FdFlags::CLOEXEC).unwrap();
-        let mut child = Command::new(env!("CARGO_BIN_EXE_cmeet"));
+        let mut child = if command == "terminal-test" {
+            let mut wrapper = Command::new("python3");
+            wrapper.args([concat!(env!("CARGO_MANIFEST_DIR"), "/tests/terminal.py"), env!("CARGO_BIN_EXE_cmeet")]);
+            wrapper
+        } else { Command::new(env!("CARGO_BIN_EXE_cmeet")) };
         child.args([
-            command,
+            if command == "terminal-test" { "tui" } else { command },
             "--endpoint",
             &self.endpoint,
             "--origin",
