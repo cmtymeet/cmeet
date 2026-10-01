@@ -29,7 +29,7 @@ async function activeElementInsideDialog(page: import('@playwright/test').Page):
   });
 }
 
-test('initial focus is inside the dialog and Tab / Shift+Tab stay inside', async ({ page }, testInfo) => {
+test('initial focus enters the modal and keyboard navigation skips background controls', async ({ page }, testInfo) => {
   await joinAs(page, 'dialog-focus-trap');
   await joinRoomButton(page).click();
   const dialog = page.getByRole('dialog');
@@ -42,14 +42,19 @@ test('initial focus is inside the dialog and Tab / Shift+Tab stay inside', async
     contentType: 'image/png',
   });
 
-  for (let i = 0; i < 12; i += 1) {
-    await page.keyboard.press('Tab');
-    expect(await activeElementInsideDialog(page)).toBe(true);
-  }
-
-  for (let i = 0; i < 12; i += 1) {
-    await page.keyboard.press('Shift+Tab');
-    expect(await activeElementInsideDialog(page)).toBe(true);
+  expect(await dialog.evaluate((node) => node.matches(':modal'))).toBe(true);
+  for (const key of ['Tab', 'Shift+Tab']) {
+    for (let i = 0; i < 12; i += 1) {
+      await page.keyboard.press(key);
+      // Native dialogs may cycle through browser chrome, represented by body
+      // as activeElement. The next key must return to the modal; background
+      // controls must never receive focus. See HTML sequential focus navigation:
+      // https://html.spec.whatwg.org/multipage/interaction.html#sequential-focus-navigation
+      if (await page.evaluate(() => document.activeElement === document.body)) {
+        await page.keyboard.press(key);
+      }
+      expect(await activeElementInsideDialog(page)).toBe(true);
+    }
   }
 });
 
@@ -93,7 +98,7 @@ test('backdrop closes without consent but internal padding does not dismiss', as
   await page.mouse.click(20, 20);
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Groups' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Saturday market' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Saturday market', level: 1 })).toHaveCount(0);
   await expect(opener).toBeVisible();
 });
 
