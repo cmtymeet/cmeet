@@ -55,7 +55,7 @@ shipping status. Detailed architecture belongs in the library repositories.
 |---|---|
 | `cvld` | Admission service: authentication, gates, membership and policy across global and community scopes. |
 | `cglb` | Global verification, uniqueness and platform suspension, separate from community data. |
-| `cmnt` | Community admission, composing membership, gatekeeping and policy. |
+| `cmty` | Community admission, composing membership, gatekeeping and policy. |
 | `cmbr` | Membership lifecycle, handles, passkeys, lobby state and pins. |
 | `cgts` | Gatekeeping: run community checks and consume verified global proofs. |
 | `cplc` | Policy and admission decisions over verified settings and evidence, with signed credentials and publications. |
