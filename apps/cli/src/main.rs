@@ -64,9 +64,18 @@ enum Command {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
-enum Projection { Cli, Mcp, Openapi, Bundle }
+enum Projection {
+    Cli,
+    Mcp,
+    Openapi,
+    Bundle,
+}
 
-enum Session { Invoke, Mcp, Tui }
+enum Session {
+    Invoke,
+    Mcp,
+    Tui,
+}
 
 fn main() -> ExitCode {
     let (session, connection) = match Arguments::parse().command {
@@ -80,14 +89,19 @@ fn main() -> ExitCode {
             let format = if pretty { Format::Pretty } else { Format::Json };
             return match write_json(&mut io::stdout().lock(), &value, format) {
                 Ok(()) => ExitCode::SUCCESS,
-                Err(_) => { eprintln!("cmeet: output unavailable"); ExitCode::FAILURE }
+                Err(_) => {
+                    eprintln!("cmeet: output unavailable");
+                    ExitCode::FAILURE
+                }
             };
         }
         Command::Invoke { connection } => (Session::Invoke, connection),
         Command::Mcp { connection } => (Session::Mcp, connection),
         Command::Tui { connection } => (Session::Tui, connection),
     };
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
         .expect("cmeet: runtime unavailable");
     let code = runtime.block_on(run(session, connection));
     // Tokio standard I/O uses blocking tasks; a pipe whose writer never closes
@@ -118,10 +132,18 @@ async fn run(session: Session, connection: Connection) -> u8 {
                 result = operation => result,
                 _ = cancel.cancelled() => Err(ErrorCode::Reconcile),
             };
-            let output = match result { Ok(output) => output, Err(error) => Output::Error { error } };
+            let output = match result {
+                Ok(output) => output,
+                Err(error) => Output::Error { error },
+            };
             match runtime::output(&mut tokio::io::stdout(), &output).await {
                 Ok(()) => runtime::exit_code(&output),
-                Err(_) => { eprintln!("cmeet: output unavailable; action outcome may require reconciliation"); 1 }
+                Err(_) => {
+                    eprintln!(
+                        "cmeet: output unavailable; action outcome may require reconciliation"
+                    );
+                    1
+                }
             }
         }
         Session::Tui => {
@@ -131,17 +153,29 @@ async fn run(session: Session, connection: Connection) -> u8 {
             };
             match result {
                 Ok(code) => code,
-                Err(error) => { eprintln!("cmeet: terminal unavailable; outstanding actions may require reconciliation"); error.exit_code() }
+                Err(error) => {
+                    eprintln!(
+                        "cmeet: terminal unavailable; outstanding actions may require reconciliation"
+                    );
+                    error.exit_code()
+                }
             }
         }
         Session::Mcp => {
             let result = match client {
-                Ok(client) => mcp::serve(client, tokio::io::stdin(), tokio::io::stdout(), cancel).await,
+                Ok(client) => {
+                    mcp::serve(client, tokio::io::stdin(), tokio::io::stdout(), cancel).await
+                }
                 Err(error) => Err(error),
             };
             match result {
                 Ok(()) => 0,
-                Err(error) => { eprintln!("cmeet: MCP session unavailable; outstanding actions may require reconciliation"); error.exit_code() }
+                Err(error) => {
+                    eprintln!(
+                        "cmeet: MCP session unavailable; outstanding actions may require reconciliation"
+                    );
+                    error.exit_code()
+                }
             }
         }
     };

@@ -101,12 +101,12 @@ async fn actual_mcp_process_uses_owner_tools_http_results_errors_and_events() {
 #[tokio::test]
 async fn malformed_duplicate_protocol_and_oversized_frames_close_without_authority_changes() {
     let host = Host::new().await;
-    for frame in [
+    for (case, frame) in [
         b"not JSON\n".to_vec(),
         b"{\"jsonrpc\":\"2.0\",\"id\":1,\"id\":2,\"method\":\"ping\"}\n".to_vec(),
         vec![b'x'; cmeet::mcp::MAX_FRAME_BYTES + 1],
         b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"runtime.status\",\"name\":\"client.revoke\",\"arguments\":{}}}\n".to_vec(),
-    ] {
+    ].into_iter().enumerate() {
         let mut child = host.spawn("mcp", ORIGIN);
         let mut writer = child.stdin.take().unwrap();
         let mut reader = BufReader::new(child.stdout.take().unwrap());
@@ -114,7 +114,7 @@ async fn malformed_duplicate_protocol_and_oversized_frames_close_without_authori
         let _ = writer.write_all(&frame).await;
         drop(writer);
         let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output()).await.unwrap().unwrap();
-        assert!(!result.status.success());
+        assert!(!result.status.success(), "malformed case {case}");
         assert!(result.stdout.is_empty());
     }
     assert!(
@@ -139,9 +139,19 @@ async fn excessive_outstanding_requests_duplicate_ids_and_broken_output_terminat
         for i in 0..=cmeet::mcp::MAX_PENDING {
             let id = if duplicate { 1 } else { i + 1 };
             let message = json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"runtime.status","arguments":{}}});
-            if writer.write_all(format!("{message}\n").as_bytes()).await.is_err() { break; }
+            if writer
+                .write_all(format!("{message}\n").as_bytes())
+                .await
+                .is_err()
+            {
+                break;
+            }
         }
-        let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output()).await.unwrap().unwrap();
+        let result =
+            tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output())
+                .await
+                .unwrap()
+                .unwrap();
         assert!(!result.status.success());
         drop(writer);
     }
@@ -150,8 +160,15 @@ async fn excessive_outstanding_requests_duplicate_ids_and_broken_output_terminat
     let mut reader = BufReader::new(child.stdout.take().unwrap());
     initialize(&mut writer, &mut reader).await;
     drop(reader);
-    send(&mut writer, json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})).await;
-    let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output()).await.unwrap().unwrap();
+    send(
+        &mut writer,
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}),
+    )
+    .await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output())
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!result.status.success());
 }
 
@@ -159,7 +176,16 @@ async fn excessive_outstanding_requests_duplicate_ids_and_broken_output_terminat
 async fn stalled_initialization_and_idle_sessions_do_not_live_forever() {
     let host = Host::new().await;
     let (reader, _held) = tokio::io::duplex(128);
-    assert!(matches!(cmeet::mcp::serve(host.client(), reader, tokio::io::sink(), tokio_util::sync::CancellationToken::new()).await, Err(cmsg::door::ErrorCode::Unavailable)));
+    assert!(matches!(
+        cmeet::mcp::serve(
+            host.client(),
+            reader,
+            tokio::io::sink(),
+            tokio_util::sync::CancellationToken::new()
+        )
+        .await,
+        Err(cmsg::door::ErrorCode::Unavailable)
+    ));
 }
 
 #[tokio::test]
@@ -171,8 +197,14 @@ async fn eof_without_a_drained_owner_response_reports_unknown_outcome() {
     initialize(&mut writer, &mut reader).await;
     send(&mut writer, json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"runtime.status","arguments":{}}})).await;
     drop(writer);
-    let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output()).await.unwrap().unwrap();
-    assert_eq!(result.status.code(), Some(i32::from(cmsg::door::ErrorCode::Reconcile.exit_code())));
+    let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(i32::from(cmsg::door::ErrorCode::Reconcile.exit_code()))
+    );
 }
 
 #[tokio::test]
@@ -187,12 +219,20 @@ async fn sdk_request_cancellation_preserves_unknown_outcome_without_retry() {
         while host.calls.load(std::sync::atomic::Ordering::SeqCst) == 0 {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     send(&mut writer, json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1,"reason":"caller cancelled"}})).await;
     send(&mut writer, json!({"jsonrpc":"2.0","id":2,"method":"ping"})).await;
     assert_eq!(receive(&mut reader).await["id"], 2);
     drop(writer);
-    let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output()).await.unwrap().unwrap();
-    assert_eq!(result.status.code(), Some(i32::from(cmsg::door::ErrorCode::Reconcile.exit_code())));
+    let result = tokio::time::timeout(std::time::Duration::from_secs(15), child.wait_with_output())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(i32::from(cmsg::door::ErrorCode::Reconcile.exit_code()))
+    );
     assert_eq!(host.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }

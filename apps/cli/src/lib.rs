@@ -6,9 +6,9 @@
 use serde::{Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
 
+pub mod mcp;
 pub mod runtime;
 pub mod tui;
-pub mod mcp;
 
 /// Presentation only; both forms preserve the serialized owner value.
 #[derive(Clone, Copy)]

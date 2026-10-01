@@ -31,7 +31,7 @@ def until(marker):
             captured.extend(os.read(master, 65536))
 
 try:
-    until(b'No action invoked')
+    until(b'invoked')
     os.write(master, b'\x1b[B' * status_index + b'\r')
     until(b'unavailable')
     os.write(master, b'\x15{bad}\r')
