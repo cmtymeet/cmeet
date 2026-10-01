@@ -2,17 +2,8 @@ name: Web frontend
 on:
   push:
     branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'ui/**'
-      - 'core/**'
-      - '.github/workflows/web.yml'
   pull_request:
-    paths:
-      - 'apps/web/**'
-      - 'ui/**'
-      - 'core/**'
-      - '.github/workflows/web.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -20,40 +11,85 @@ concurrency:
   queue: max
   cancel-in-progress: false
 jobs:
+  web-impact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.paths.outputs.web }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify workflow applicability and acceptance commands
+        run: node --test .ci/web-impact.test.mjs
+      - id: paths
+        run: node .ci/web-impact.mjs
   web:
+    needs: [web-impact]
+    if: always() && !cancelled()
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
       run:
         working-directory: apps/web
     steps:
+      - name: Require successful applicability and prerequisite checks
+        if: needs.web-impact.result != 'success'
+        working-directory: .
+        run: exit 1
+      - name: Scope not affected
+        if: needs.web-impact.result == 'success' && needs.web-impact.outputs.relevant == 'false'
+        working-directory: .
+        run: echo 'Not applicable to the changed paths. No web tests or product acceptance claimed.'
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        if: needs.web-impact.outputs.relevant == 'true'
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        if: needs.web-impact.outputs.relevant == 'true'
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+
       - name: Install dependencies
+        if: needs.web-impact.outputs.relevant == 'true'
         run: npm ci --no-audit --no-fund
+
       - name: Typecheck
+        if: needs.web-impact.outputs.relevant == 'true'
         run: npm run typecheck
+
       - name: Unit and component tests
+        if: needs.web-impact.outputs.relevant == 'true'
         run: npm run test:unit
+
       - name: Build
+        if: needs.web-impact.outputs.relevant == 'true'
         run: npm run build
+
       - name: Verify generated browser asset closure
+        if: needs.web-impact.outputs.relevant == 'true'
         run: node ../../.ci/assert-asset-closure.mjs dist
+
       - name: Install Playwright browser
+        if: needs.web-impact.outputs.relevant == 'true'
         run: npx playwright install --with-deps chromium
+
       - name: UI fixture journeys (development server)
+        if: needs.web-impact.outputs.relevant == 'true'
         run: npm run test:e2e
+
       - name: Production excludes fixtures and refuses unavailable runtime
+        if: needs.web-impact.outputs.relevant == 'true'
         run: npm run test:production
+
       - name: Upload Playwright report
-        if: failure()
+        if: (failure()) && needs.web-impact.outputs.relevant == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: web-playwright-report

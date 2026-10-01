@@ -3,9 +3,7 @@ name: ci
 on:
   push:
     branches: [main]
-    paths: ['apps/cli/**', '.ci/policy/**', '.github/workflows/ci.yml']
   pull_request:
-    paths: ['apps/cli/**', '.ci/policy/**', '.github/**']
   workflow_dispatch:
 
 permissions:
@@ -21,16 +19,46 @@ env:
   CARGO_TERM_COLOR: never
 
 jobs:
-  resolve:
+  cli-impact:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.paths.outputs.cli }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+          fetch-depth: 0
+      - name: Verify workflow applicability and acceptance commands
+        run: node --test .ci/web-impact.test.mjs
+      - id: paths
+        run: node .ci/web-impact.mjs
+  resolve:
+    needs: [cli-impact]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Require successful applicability and prerequisite checks
+        if: needs.cli-impact.result != 'success'
+        working-directory: .
+        run: exit 1
+      - name: Scope not affected
+        if: needs.cli-impact.result == 'success' && needs.cli-impact.outputs.relevant == 'false'
+        working-directory: .
+        run: echo 'Not applicable to the changed paths. No cli tests or product acceptance claimed.'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: needs.cli-impact.outputs.relevant == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        if: needs.cli-impact.outputs.relevant == 'true'
+
       - name: Resolve one snapshot per Cargo root
+        if: needs.cli-impact.outputs.relevant == 'true'
         run: |
           mkdir -p evidence
           rustc --version --verbose > evidence/rustc.txt
@@ -45,8 +73,9 @@ jobs:
             fi
           done
           exit "$failed"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
+        if: (always()) && needs.cli-impact.outputs.relevant == 'true'
         with:
           name: dependency-snapshot
           include-hidden-files: true
@@ -54,44 +83,76 @@ jobs:
             apps/cli/Cargo.lock
             evidence/
           retention-days: 7
+
   dependency-policy:
-    needs: resolve
+    needs: [cli-impact, resolve]
     if: always() && !cancelled()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Require successful applicability and prerequisite checks
+        if: needs.cli-impact.result != 'success' || needs.resolve.result != 'success'
+        working-directory: .
+        run: exit 1
+      - name: Scope not affected
+        if: needs.cli-impact.result == 'success' && needs.cli-impact.outputs.relevant == 'false'
+        working-directory: .
+        run: echo 'Not applicable to the changed paths. No cli tests or product acceptance claimed.'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: needs.cli-impact.outputs.relevant == 'true'
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.cli-impact.outputs.relevant == 'true'
         with:
           name: dependency-snapshot
-      - run: |
+
+      - if: needs.cli-impact.outputs.relevant == 'true'
+        run: |
           python3 .ci/policy/check-first-party.py
           python3 .ci/policy/test-source-coverage.py
+
   check:
-    needs: [resolve, dependency-policy]
-    if: always() && !cancelled() && needs.dependency-policy.result == 'success'
+    needs: [cli-impact, resolve, dependency-policy]
+    if: always() && !cancelled()
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - name: Require successful applicability and prerequisite checks
+        if: needs.cli-impact.result != 'success' || needs.resolve.result != 'success' || needs.dependency-policy.result != 'success'
+        working-directory: .
+        run: exit 1
+      - name: Scope not affected
+        if: needs.cli-impact.result == 'success' && needs.cli-impact.outputs.relevant == 'false'
+        working-directory: .
+        run: echo 'Not applicable to the changed paths. No cli tests or product acceptance claimed.'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: needs.cli-impact.outputs.relevant == 'true'
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.cli-impact.outputs.relevant == 'true'
         with:
           name: dependency-snapshot
+
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        if: needs.cli-impact.outputs.relevant == 'true'
         with:
           components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        if: needs.cli-impact.outputs.relevant == 'true'
         with:
           cache-on-failure: true
           workspaces: |
             apps/cli
+
       - name: Stable format, lint and real tests
+        if: needs.cli-impact.outputs.relevant == 'true'
         run: |
           failed=0
           for root in apps/cli; do
@@ -105,42 +166,64 @@ jobs:
             fi
           done
           exit "$failed"
+
       - name: Retain exact formatting suggestions
-        if: failure()
+        if: (failure()) && needs.cli-impact.outputs.relevant == 'true'
         run: |
           for root in apps/cli; do
             if grep -Fxq -- "$root" evidence/resolved-roots.txt; then cargo fmt --manifest-path "$root/Cargo.toml"; fi
           done
           git diff > formatting.patch
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: failure()
+        if: (failure()) && needs.cli-impact.outputs.relevant == 'true'
         with:
           name: formatting
           path: formatting.patch
+
   coverage:
-    needs: [resolve, check]
+    needs: [cli-impact, resolve, check]
     if: always() && !cancelled()
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - name: Require successful applicability and prerequisite checks
+        if: needs.cli-impact.result != 'success' || needs.resolve.result != 'success' || needs.check.result != 'success'
+        working-directory: .
+        run: exit 1
+      - name: Scope not affected
+        if: needs.cli-impact.result == 'success' && needs.cli-impact.outputs.relevant == 'false'
+        working-directory: .
+        run: echo 'Not applicable to the changed paths. No cli tests or product acceptance claimed.'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: needs.cli-impact.outputs.relevant == 'true'
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.cli-impact.outputs.relevant == 'true'
         with:
           name: dependency-snapshot
+
       - uses: dtolnay/rust-toolchain@be39649afda95dbf70f87cce95f68b8d5797b296 # nightly
+        if: needs.cli-impact.outputs.relevant == 'true'
         with:
           components: llvm-tools-preview
+
       - uses: taiki-e/install-action@72f835688cb6c15903b796f704b01e652a2b8835 # cargo-llvm-cov
+        if: needs.cli-impact.outputs.relevant == 'true'
+
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        if: needs.cli-impact.outputs.relevant == 'true'
         with:
           shared-key: coverage
           cache-on-failure: true
           workspaces: |
             apps/cli
+
       - name: Require every reachable line and branch
+        if: needs.cli-impact.outputs.relevant == 'true'
         run: |
           mkdir -p coverage
           failed=0
@@ -162,18 +245,31 @@ jobs:
             fi
           done
           exit "$failed"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
+        if: (always()) && needs.cli-impact.outputs.relevant == 'true'
         with:
           name: coverage
           path: coverage/
           if-no-files-found: error
           retention-days: 7
+
   toy:
+    needs: [cli-impact]
+    if: always() && !cancelled()
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
+      - name: Require successful applicability and prerequisite checks
+        if: needs.cli-impact.result != 'success'
+        working-directory: .
+        run: exit 1
+      - name: Scope not affected
+        if: needs.cli-impact.result == 'success' && needs.cli-impact.outputs.relevant == 'false'
+        working-directory: .
+        run: echo 'Not applicable to the changed paths. No cli tests or product acceptance claimed.'
       - name: Refuse incomplete product acceptance
+        if: needs.cli-impact.outputs.relevant == 'true'
         run: |
           echo "::error::BLOCKED: the conjunctive real member/admin/root, Tor, groups and device-loss scenario is not implemented. See tests/toy/README.md."
           exit 1
