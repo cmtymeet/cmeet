@@ -394,7 +394,8 @@ export function createDevCmsg(options: DevAdapterOptions = {}): CmsgClient {
       await delay(150);
       joined = true;
       handle = name;
-      admitted = true;
+      // Registered but not admitted: the profile gate is still open.
+      admitted = false;
       const lobby = lobbyState();
       emit({ type: 'lobby', lobby });
       return { lobby };

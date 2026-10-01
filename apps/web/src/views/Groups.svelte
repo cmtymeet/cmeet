@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { CmsgClient, GroupView } from '../../../../core/src/cmsg.js';
-  import { Notice, EmptyState, GroupCard } from '../../../../ui/src/index.js';
+  import { Notice, EmptyState, GroupCard, Dialog, Button } from '../../../../ui/src/index.js';
   import { en } from '../../../../ui/src/i18n/en.js';
 
   interface Props {
@@ -11,6 +11,8 @@
 
   let groups: GroupView[] = $state([]);
   let error = $state('');
+  let pendingJoin: GroupView | null = $state(null);
+  let consentChecked = $state(false);
 
   async function load() {
     try {
@@ -27,11 +29,21 @@
     });
   });
 
-  async function join(id: string) {
+  function askJoin(id: string) {
     const group = groups.find((g) => g.id === id);
-    if (group?.joinConsent && !window.confirm(`${group.joinConsent}\n\nJoin ${group.name}?`)) return;
+    if (!group) return;
+    if (!group.joinConsent) {
+      void join(id);
+      return;
+    }
+    consentChecked = false;
+    pendingJoin = group;
+  }
+
+  async function join(id: string) {
     try {
       await client.joinGroup(id);
+      pendingJoin = null;
       await load();
       window.location.hash = `#/groups/${encodeURIComponent(id)}`;
     } catch (e) {
@@ -67,11 +79,25 @@
           leaveLabel={en.groups.leave}
           joinedLabel={en.groups.joined}
           nextLabel={en.groups.whatChangesNext}
-          onjoin={(id) => void join(id)}
+          onjoin={(id) => askJoin(id)}
           onleave={(id) => void leave(id)}
           onopen={(id) => (window.location.hash = `#/groups/${encodeURIComponent(id)}`)}
         />
       {/each}
     </div>
+  {/if}
+  {#if pendingJoin}
+    <Dialog open labelledBy="join-title" describedBy="join-consent" onclose={() => (pendingJoin = null)}>
+      <h2 id="join-title">Join {pendingJoin.name}</h2>
+      <p id="join-consent">{pendingJoin.joinConsent}</p>
+      <label>
+        <input type="checkbox" checked={consentChecked} onchange={(e) => (consentChecked = e.currentTarget.checked)} />
+        I understand and consent to this visibility.
+      </label>
+      <div class="row" style="margin-top: 0.75rem;">
+        <Button variant="primary" disabled={!consentChecked} onclick={() => void join(pendingJoin!.id)}>Join {pendingJoin.name}</Button>
+        <Button onclick={() => (pendingJoin = null)}>Cancel</Button>
+      </div>
+    </Dialog>
   {/if}
 </section>
