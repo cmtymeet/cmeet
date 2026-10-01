@@ -25,18 +25,22 @@
     <button role="tab" aria-selected={side === 'back'} class:active={side === 'back'} onclick={() => (side = 'back')}>{backLabel}</button>
   </div>
   {#if side === 'front'}
-    <dl role="tabpanel" aria-label={frontLabel}>
-      {#each publicFields as field}
-        <div><dt>{field.question}</dt><dd>{show(values[field.key])}</dd></div>
-      {/each}
-    </dl>
+    <section role="tabpanel" aria-label={frontLabel}>
+      <dl>
+        {#each publicFields as field}
+          <div><dt>{field.question}</dt><dd>{show(values[field.key])}</dd></div>
+        {/each}
+      </dl>
+    </section>
   {:else}
-    <dl role="tabpanel" aria-label={backLabel}>
-      {#each privateFields as field}
-        <div><dt>{field.question}</dt><dd>{show(values[field.key])}</dd></div>
-      {/each}
+    <section role="tabpanel" aria-label={backLabel}>
+      <dl>
+        {#each privateFields as field}
+          <div><dt>{field.question}</dt><dd>{show(values[field.key])}</dd></div>
+        {/each}
+      </dl>
       {#if privateFields.length === 0}<p class="muted">Nothing private yet.</p>{/if}
-    </dl>
+    </section>
   {/if}
 </div>
 

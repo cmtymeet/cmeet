@@ -25,6 +25,7 @@ import type {
   LobbyState,
   MatchPage,
   MatchRule,
+  MemberId,
   OwnProfile,
   ProfileSchema,
   ProfileValues,
