@@ -1,3 +1,7 @@
+<script lang="ts">
+  // This screen has no member state or actions.
+</script>
+
 <svelte:head>
   <title>cmeet · Unavailable</title>
 </svelte:head>
