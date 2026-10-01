@@ -10,8 +10,8 @@ on:
         description: Exact original cmeet commit of that preparation
         type: string
         required: true
-      publish_image:
-        description: Publish the successfully checked image to GHCR
+      export_archive:
+        description: Retain the checked image as a file for deployment
         type: boolean
         default: false
       export_bundle:
@@ -22,7 +22,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.run_id }}
+  group: cmeet-implementation
   cancel-in-progress: false
 jobs:
   image:
@@ -48,7 +48,7 @@ jobs:
         id: build
         env:
           ARTIFACT_ROOT: ${{ runner.temp }}/image-contract
-          EXPORT_IMAGE_ARCHIVE: ${{ inputs.publish_image }}
+          EXPORT_IMAGE_ARCHIVE: ${{ inputs.export_archive }}
           IMAGE_ARCHIVE_DIR: ${{ runner.temp }}/image-archive
           EXPORT_BUILD_BUNDLE: ${{ inputs.export_bundle }}
           BUILD_BUNDLE_DIR: ${{ runner.temp }}/image-bundle
@@ -62,8 +62,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
-      - name: Retain the exact checked image for publication
-        if: inputs.publish_image
+      - name: Retain the exact checked image archive
+        if: inputs.export_archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: image-archive-${{ github.sha }}
@@ -77,50 +77,6 @@ jobs:
         with:
           name: image-contract-${{ github.sha }}
           path: ${{ runner.temp }}/image-contract
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
-  publish:
-    if: inputs.publish_image
-    needs: image
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      actions: read
-      packages: write
-    env:
-      CI_COMMIT_SHA: ${{ github.sha }}
-      EXPECTED_ARCHIVE_SHA: ${{ needs.image.outputs.archive_sha256 }}
-      EXPECTED_IMAGE_ID: ${{ needs.image.outputs.image_id }}
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '24'
-      - name: Download this run's checked image and evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-          IMAGE_ARCHIVE_DIR: ${{ runner.temp }}/image-archive
-          IMAGE_EVIDENCE_DIR: ${{ runner.temp }}/image-contract
-        run: |
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "image-archive-$CI_COMMIT_SHA" --dir "$IMAGE_ARCHIVE_DIR"
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "image-contract-$CI_COMMIT_SHA" --dir "$IMAGE_EVIDENCE_DIR"
-      - name: Verify and publish the checked image
-        env:
-          GHCR_TOKEN: ${{ github.token }}
-          IMAGE_ARCHIVE_DIR: ${{ runner.temp }}/image-archive
-          IMAGE_EVIDENCE_DIR: ${{ runner.temp }}/image-contract
-          ARTIFACT_ROOT: ${{ runner.temp }}/image-publication
-        run: bash .ci/image-publish.sh
-      - name: Retain the image digest and publication evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: image-publication-${{ github.sha }}
-          path: ${{ runner.temp }}/image-publication
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

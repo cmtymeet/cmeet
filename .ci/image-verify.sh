@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Public remote CI only. Publish an already checked image; never rebuild it.
+# Verify and load an already checked image archive; never rebuild or publish it.
 set -euo pipefail
 test "${CI:-}" = true
 test "${GITHUB_REPOSITORY:-}" = cmtymeet/cmeet
@@ -11,16 +11,11 @@ test "${GITHUB_REPOSITORY:-}" = cmtymeet/cmeet
 test -n "${IMAGE_ARCHIVE_DIR:-}"
 test -n "${IMAGE_EVIDENCE_DIR:-}"
 test -n "${ARTIFACT_ROOT:-}"
-test -n "${GHCR_TOKEN:-}"
-test -n "${GITHUB_ACTOR:-}"
 mkdir "$ARTIFACT_ROOT"
-export DOCKER_CONFIG
-DOCKER_CONFIG="$(mktemp -d)"
 capture() {
   local status=$?
   trap - EXIT
-  rm -rf "$DOCKER_CONFIG"
-  printf '%s\n' "$status" > "$ARTIFACT_ROOT/publication-status.txt"
+  printf '%s\n' "$status" > "$ARTIFACT_ROOT/verification-status.txt"
   (cd "$ARTIFACT_ROOT" && find . -type f ! -path ./SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
   exit "$status"
 }
@@ -57,28 +52,4 @@ JS
 timeout --kill-after=15 300 docker image load --input "$IMAGE_ARCHIVE_DIR/image.tar.gz" > "$ARTIFACT_ROOT/image-load.log"
 loaded_id="$(docker image inspect "cmeet-runtime:$CI_COMMIT_SHA" --format '{{.Id}}')"
 test "$loaded_id" = "$EXPECTED_IMAGE_ID"
-# Include the run identity because the same source can select a newer base
-# image later. Deployments consume the resulting digest, never a mutable tag.
-registry_tag="ghcr.io/cmtymeet/cmeet:${CI_COMMIT_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-docker image tag "$loaded_id" "$registry_tag"
-printf '%s' "$GHCR_TOKEN" | timeout --kill-after=5 60 docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin > "$ARTIFACT_ROOT/registry-login.log" 2>&1
-unset GHCR_TOKEN
-timeout --kill-after=15 600 docker image push "$registry_tag" 2>&1 | tee "$ARTIFACT_ROOT/image-push.log"
-docker image inspect "$registry_tag" > "$ARTIFACT_ROOT/published-image.json"
-node --input-type=module <<'JS'
-import assert from 'node:assert/strict';
-import { appendFile, readFile, writeFile } from 'node:fs/promises';
-const root = process.env.ARTIFACT_ROOT;
-const [image] = JSON.parse(await readFile(root + '/published-image.json'));
-assert.equal(image.Id, process.env.EXPECTED_IMAGE_ID);
-const digests = image.RepoDigests.filter(value => /^ghcr\.io\/cmtymeet\/cmeet@sha256:[0-9a-f]{64}$/.test(value));
-assert.equal(digests.length, 1);
-const publication = { format: 1, source: process.env.CI_COMMIT_SHA,
-  runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT,
-  imageId: image.Id, archiveSha256: process.env.EXPECTED_ARCHIVE_SHA,
-  image: digests[0], tag: `ghcr.io/cmtymeet/cmeet:${process.env.CI_COMMIT_SHA}-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}` };
-await writeFile(root + '/publication.json', JSON.stringify(publication, null, 2) + '\n');
-if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY,
-  `Published checked image: \`${publication.image}\`\n\nPackage visibility is managed separately; publication does not imply anonymous pull access.\n`);
-console.log(JSON.stringify(publication));
-JS
+printf '%s\n' "Verified image $loaded_id from $EXPECTED_ARCHIVE_SHA"

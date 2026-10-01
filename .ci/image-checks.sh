@@ -88,8 +88,8 @@ if [[ "${EXPORT_BUILD_BUNDLE:-false}" = true ]]; then
   timeout --kill-after=15 300 node .ci/image-bundle.mjs
 fi
 
-# Export only the exact image whose native smoke passed. The separate publisher
-# gets no build command and verifies this archive and image ID before pushing.
+# Export only the exact image whose native smoke passed. Deployment verifies
+# this archive and image ID; no registry publication is part of this workflow.
 if [[ "${EXPORT_IMAGE_ARCHIVE:-false}" = true ]]; then
   test -n "${IMAGE_ARCHIVE_DIR:-}"
   test -n "${GITHUB_OUTPUT:-}"
