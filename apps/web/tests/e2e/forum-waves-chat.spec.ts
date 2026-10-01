@@ -5,6 +5,7 @@ async function joinAndPublish(page: import('@playwright/test').Page) {
   await expect(page.getByRole('heading', { name: 'Good conversations start with the right people.' })).toBeVisible({
     timeout: 15000,
   });
+  await page.getByRole('button', { name: 'Sign in / register' }).click();
   await page.getByLabel('Invitation voucher').fill('VOUCHER-TEST-123');
   await page.getByLabel(/Choose a handle/).fill('e2e-member');
   await page.getByRole('button', { name: 'Continue to join' }).click();

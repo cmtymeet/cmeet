@@ -11,6 +11,7 @@ test('voucher arrival, lobby and profile publish', async ({ page }) => {
   });
 
   // Bad vouchers are refused with a plain message.
+  await page.getByRole('button', { name: 'Sign in / register' }).click();
   await page.getByLabel('Invitation voucher').fill('not-a-voucher');
   await page.getByLabel(/Choose a handle/).fill('new-member');
   await page.getByRole('button', { name: 'Continue to join' }).click();
