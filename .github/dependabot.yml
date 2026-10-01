@@ -2,6 +2,7 @@ version: 2
 updates:
   - package-ecosystem: cargo
     directories:
+      - /apps/cli
       - /native/backend
       - /.ci/accounting-native
     schedule:

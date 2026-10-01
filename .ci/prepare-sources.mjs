@@ -70,11 +70,6 @@ async function ensureCargoLock(label, manifest, cwd) {
 }
 async function nativeBackend() {
   const directory = join(root, 'native/backend');
-  const manifest = await readFile(join(directory, 'Cargo.toml'), 'utf8');
-  for (const name of ['cfrm', 'cmsg']) {
-    assert(manifest.split('\n').find(line => line.startsWith(name + ' ='))?.includes('rev = "' + sources[name].revision + '"'),
-      'The native backend must use the same exact ' + name + ' source as the browser package');
-  }
   const lock = join(directory, 'Cargo.lock');
   const nativeEvidence = { directory, built: false };
   evidence.nativeBackend = nativeEvidence;
@@ -155,6 +150,16 @@ async function pack(name, directory, source) {
   await installArchive(name, join(packageDir, record.filename), source, record.integrity);
 }
 try {
+  // Refuse an incoherent legacy package graph before spending time compiling it.
+  const nativeManifest = await readFile(join(root, 'native/backend/Cargo.toml'), 'utf8');
+  const nativeLock = await readFile(join(root, 'native/backend/Cargo.lock'), 'utf8');
+  for (const name of ['cfrm', 'cmsg']) {
+    assert(nativeManifest.split('\n').find(line => line.startsWith(name + ' ='))?.includes('branch = "main"'),
+      'First-party native dependencies must follow main');
+    const source = 'git+https://github.com/corbet-libs/' + name + '.git?branch=main#' + sources[name].revision;
+    assert(nativeLock.includes('source = "' + source + '"'),
+      'Legacy browser and native sources need one CI-resolved main snapshot; generated cmsg integration is not ready');
+  }
   evidence.toolchains = { node: process.version, npm: (await run('npm-version', 'npm', ['--version'])).trim(),
     rust: (await run('rust-version', 'rustc', ['--version'])).trim(), cargo: (await run('cargo-version', 'cargo', ['--version'])).trim() };
   const cfrm = await checkout('cfrm'), cmsg = await checkout('cmsg'), cvld = await checkout('cvld');

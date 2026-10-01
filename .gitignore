@@ -3,6 +3,9 @@ vendor/
 dist/
 .ci-work/
 artifacts/
+target/
+evidence/
+coverage/
 deploy/stage/
 *.tgz
 .env
