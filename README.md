@@ -14,6 +14,28 @@ Deployment configuration supplies `baseDomain`; community, admin/root, API and
 MCP hostnames derive from it. Communities can graduate to a custom domain with a
 stable `communityId`. See [domain configuration](docs/domains.md).
 
+## Scope
+
+cmeet owns the product shells: one Rust CLI with JSON, TUI and MCP surfaces,
+the Svelte 5 PWA, shared presentation components and the real toy acceptance
+scenario. Future native shells reuse the same interface. Commands and schemas
+come from the cmsg action registry; every shell calls only cmsg. Member, admin
+and root credentials keep their separate scopes, with privileged operations
+forwarded through Foyer to cvld.
+
+The product renders owner results, events, readiness and failures. It contains
+no domain rules, key custody, independent action registry or direct cvld/cfrm
+client. Production builds cannot select development fixtures or software
+authenticators. Libraries and their implementations live in their own
+repositories.
+
+Acceptance requires the same real member, admin, root, group, offline-delivery
+and device-loss restore scenarios through the generated surfaces. Member use
+waits for actual Mesh bootstrap and onion publication. The CLI also drives
+`tests/toy`; adapter tests and unavailable operations cannot satisfy the
+conjunctive network scenario. Production CLI passkey custody remains an open
+integration boundary.
+
 ## Status
 
 The [web frontend](apps/web) has development UI journeys and production checks
