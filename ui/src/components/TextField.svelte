@@ -20,6 +20,10 @@
     multiline = false, required = false, min, max, maxlength, placeholder = '', oninput,
   }: Props = $props();
 
+  let describedby = $derived(
+    [help ? `${id}-help` : '', error ? `${id}-error` : ''].filter(Boolean).join(' ') || undefined,
+  );
+
   function handle(event: Event) {
     oninput?.((event.currentTarget as HTMLInputElement).value);
   }
@@ -28,19 +32,19 @@
 <div class="field">
   <label for={id}>{label}{#if required} <span aria-hidden="true">*</span>{/if}</label>
   {#if choices}
-    <select {id} value={String(value ?? '')} onchange={handle} aria-describedby={help ? `${id}-help` : undefined} aria-invalid={error ? 'true' : undefined}>
+    <select {id} value={String(value ?? '')} onchange={handle} {required} aria-describedby={describedby} aria-invalid={error ? 'true' : undefined}>
       <option value="">Choose…</option>
       {#each choices as choice}<option value={choice}>{choice}</option>{/each}
     </select>
   {:else if multiline}
-    <textarea {id} value={String(value ?? '')} oninput={handle} rows="3" {maxlength} {placeholder}
-      aria-describedby={help ? `${id}-help` : undefined} aria-invalid={error ? 'true' : undefined}></textarea>
+    <textarea {id} value={String(value ?? '')} oninput={handle} rows="3" {required} {maxlength} {placeholder}
+      aria-describedby={describedby} aria-invalid={error ? 'true' : undefined}></textarea>
   {:else}
-    <input {id} {type} value={value ?? ''} oninput={handle} {min} {max} {maxlength} {placeholder}
-      aria-describedby={help ? `${id}-help` : undefined} aria-invalid={error ? 'true' : undefined} />
+    <input {id} {type} value={value ?? ''} oninput={handle} {required} {min} {max} {maxlength} {placeholder}
+      aria-describedby={describedby} aria-invalid={error ? 'true' : undefined} />
   {/if}
   {#if help}<p id="{id}-help" class="help">{help}</p>{/if}
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if error}<p id="{id}-error" class="error" role="alert">{error}</p>{/if}
 </div>
 
 <style>
