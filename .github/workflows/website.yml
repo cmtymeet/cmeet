@@ -2,7 +2,39 @@ name: Website and voucher entry contract
 on:
   push:
     branches: [main]
+    paths:
+      - 'package*.json'
+      - 'src/**'
+      - 'server/**'
+      - 'native/backend/**'
+      - 'tests/*.mjs'
+      - 'tests/*.js'
+      - 'tests/*.html'
+      - '.ci/prepare-sources.mjs'
+      - '.ci/reuse-sources.mjs'
+      - '.ci/checks.sh'
+      - '.ci/sources.json'
+      - '.ci/assert-asset-closure.mjs'
+      - 'index.html'
+      - 'vite.config.mjs'
+      - '.github/workflows/website.yml'
   pull_request:
+    paths:
+      - 'package*.json'
+      - 'src/**'
+      - 'server/**'
+      - 'native/backend/**'
+      - 'tests/*.mjs'
+      - 'tests/*.js'
+      - 'tests/*.html'
+      - '.ci/prepare-sources.mjs'
+      - '.ci/reuse-sources.mjs'
+      - '.ci/checks.sh'
+      - '.ci/sources.json'
+      - '.ci/assert-asset-closure.mjs'
+      - 'index.html'
+      - 'vite.config.mjs'
+      - '.github/workflows/website.yml'
   workflow_dispatch:
     inputs:
       check_scope:
