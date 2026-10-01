@@ -25,7 +25,7 @@
   }
 </script>
 
-<div class="segmented" role="tablist" aria-label={label} onkeydown={handleKeydown}>
+<div class="segmented" role="tablist" aria-label={label} tabindex="-1" onkeydown={handleKeydown}>
   {#each options as option}
     <button
       type="button"
