@@ -38,10 +38,10 @@ jobs:
       REUSE_SOURCE_SHA: ${{ inputs.package_source_sha }}
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24'
       - name: Build and check the isolated runtime image
@@ -55,7 +55,7 @@ jobs:
         run: bash .ci/image-checks.sh
       - name: Retain the verified Docker build context
         if: inputs.export_bundle
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: image-bundle-${{ github.sha }}
           path: ${{ runner.temp }}/image-bundle
@@ -64,7 +64,7 @@ jobs:
           compression-level: 0
       - name: Retain the exact checked image archive
         if: inputs.export_archive
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: image-archive-${{ github.sha }}
           path: ${{ runner.temp }}/image-archive
@@ -73,7 +73,7 @@ jobs:
           compression-level: 0
       - name: Retain public provenance and bounded runtime report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: image-contract-${{ github.sha }}
           path: ${{ runner.temp }}/image-contract
