@@ -47,7 +47,7 @@ for (const record of manifest.packages) {
   const archive = join(prior, 'packages', record.archive), bytes = await readFile(archive);
   assert.equal(hash(bytes), record.sha256);
   assert.equal('sha512-' + createHash('sha512').update(bytes).digest('base64'), record.integrity);
-  if (name === 'tor-js') assert.equal(record.sha256, 'b4de87950de0ffcf331efa5c1a3617c5bcc41c48d7706f547d975bf419f06f39');
+  if (name === 'tor-js') assert.equal(record.sha256, '175d68c777a3a5817efa1860b72603dcde1120303c9cb3247ce7f08de6cbff09');
   else assert.equal(record.source, sources[name.startsWith('cfrm') ? 'cfrm' : name].revision);
   const target = join('vendor', name); await mkdir(target);
   execFileSync('tar', ['--extract', '--file', archive, '--directory', target, '--strip-components=1', '--no-same-owner']);

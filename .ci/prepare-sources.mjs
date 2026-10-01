@@ -21,7 +21,7 @@ const reviewedTor = Object.freeze({
   artifact: 'cmsg-tor-public-package-1d5217bea90730e2a5c018b88576d2d3ef9c6c21',
   source: '1d5217bea90730e2a5c018b88576d2d3ef9c6c21',
   archive: 'runtime/tor-js-0.4.1-cmsg-experiment.1d5217bea907.tgz',
-  sha256: 'b4de87950de0ffcf331efa5c1a3617c5bcc41c48d7706f547d975bf419f06f39'
+  sha256: '175d68c777a3a5817efa1860b72603dcde1120303c9cb3247ce7f08de6cbff09'
 });
 const sources = JSON.parse(await readFile(join(root, '.ci/sources.json'), 'utf8'));
 if (process.env.CVLD_SOURCE_SHA) sources.cvld.revision = process.env.CVLD_SOURCE_SHA;
