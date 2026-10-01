@@ -7,6 +7,8 @@ publish = false
 description = "Product shell for the cmsg member API"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+cmsg = { git = "https://github.com/corbet-libs/cmsg.git", branch = "main", default-features = false }
 serde = "1"
 serde_json = "1"
 

@@ -77,6 +77,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           workspaces: |
             apps/cli
             native/backend
@@ -121,6 +122,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: coverage
+          cache-on-failure: true
           workspaces: |
             apps/cli
             native/backend
@@ -132,6 +134,7 @@ jobs:
             if test -f "$root/Cargo.toml"; then
               report="coverage/$(basename "$root").json"
               cargo llvm-cov --manifest-path "$root/Cargo.toml" --locked --all-targets --branch --json --output-path "$report"
+              cargo llvm-cov report --manifest-path "$root/Cargo.toml" --branch --text --output-path "coverage/$(basename "$root").txt"
               python3 .ci/policy/check-coverage.py "$report"
             fi
           done

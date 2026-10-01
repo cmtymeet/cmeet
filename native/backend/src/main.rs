@@ -310,7 +310,7 @@ fn read_bounded(path: &Path, maximum: usize) -> Result<Vec<u8>, ServiceError> {
     if !metadata.is_file() || metadata.len() > maximum as u64 {
         return Err(ServiceError::InvalidRequest);
     }
-    let mut file = File::open(path).map_err(|_| ServiceError::Storage)?;
+    let file = File::open(path).map_err(|_| ServiceError::Storage)?;
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     file.take((maximum + 1) as u64)
         .read_to_end(&mut bytes)
@@ -771,7 +771,7 @@ fn write_response<W: Write>(
     max_bytes: usize,
 ) -> io::Result<()> {
     let bytes = serde_json::to_vec(response)
-        .map_err(|_| io::Error::new(io::ErrorKind::Other, "serialization"))?;
+        .map_err(|_| io::Error::other("serialization"))?;
     if bytes.len() > max_bytes {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "response limit"));
     }
@@ -871,7 +871,7 @@ fn main() {
             Ok(result) => RpcSuccess {
                 id,
                 ok: true,
-                result: result,
+                result,
             },
             Err(error) => {
                 // A remote SQL error or elapsed operation deadline may have
