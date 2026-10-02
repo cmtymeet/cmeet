@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createHash } from 'node:crypto';
+import { computeShellVersion } from '../../build/pwa.js';
 import { readFile, readdir } from 'node:fs/promises';
 
 const FIXED_SHELL = [
@@ -19,19 +19,6 @@ function fixedFile(entry: string): string {
 interface ShellContent {
   path: string;
   bytes: Buffer;
-}
-
-function shellVersion(contents: ShellContent[]): string {
-  // Mirrors apps/web/build/pwa.ts so CI independently verifies that the
-  // shipped cache name derives from the fixed file contents, the emitted
-  // asset names and the built index.html.
-  const ordered = [...contents].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  const hash = createHash('sha256');
-  for (const entry of ordered) {
-    hash.update(entry.path);
-    hash.update(entry.bytes);
-  }
-  return hash.digest('hex').slice(0, 12);
 }
 
 async function builtShell(): Promise<{ cache: string; files: string[] }> {
@@ -101,7 +88,14 @@ test('installability metadata, icon sizes and home-screen help', async ({ page }
   await expect(page.locator('#install')).toContainText(/browser menu/i);
 });
 
-test('a real install event offers a single native action consumed on click', async ({ page }) => {
+test('the browser install event reveals a single action consumed on click', async ({ page }) => {
+  // Isolate the browser-event boundary so a genuine prompt cannot replace
+  // the deterministic event while the actual UI is under test.
+  await page.addInitScript(() => {
+    window.addEventListener('beforeinstallprompt', (event) => {
+      if (event.isTrusted) { event.preventDefault(); event.stopImmediatePropagation(); }
+    });
+  });
   await page.goto('/');
   await expect(page.locator('#install details')).toBeVisible();
   // Synthetic browser install event only: everything after it (real UI
@@ -171,11 +165,11 @@ test('the worker precaches the entire emitted shell and caches nothing else', as
 
   // The shipped version derives from the fixed file contents, the emitted
   // asset names and the built index.html; a changed manifest must move it.
-  expect(shellVersion(contents)).toBe(version);
+  expect(computeShellVersion(contents)).toBe(version);
   const tampered = contents.map((entry) =>
     entry.path === './manifest.webmanifest' ? { ...entry, bytes: Buffer.from('{}') } : entry,
   );
-  expect(shellVersion(tampered)).not.toBe(version);
+  expect(computeShellVersion(tampered)).not.toBe(version);
 
   // The allowlist preserves every fixed shell file and every emitted asset.
   expect(files).toEqual([...FIXED_SHELL, ...[...assets].sort().map((name) => `./assets/${name}`)]);
