@@ -126,27 +126,59 @@ describe('direct chat', () => {
     }
   });
 
-  it('requires explicit punish confirmation before calling the API', async () => {
+  it('offers no punishment action, only block and close', async () => {
     const client = createDevCmsg();
     await establishTom(client);
     const spy = vi.spyOn(client, 'punishConversation');
     const { target, cleanup } = render(client, 'member-tom');
     try {
       await vi.waitFor(() => expect(target.querySelector('#composer')).not.toBeNull());
-      buttonByName(target, 'Punish')?.click();
-      await tick();
-      expect(target.textContent).toMatch(/costs both participants/);
+      const names = [...target.querySelectorAll('button')].map((b) => b.textContent?.trim() ?? '');
+      expect(names.join(' | ')).not.toMatch(/punish/i);
+      expect(target.textContent).not.toMatch(/costs both participants/i);
+      expect(buttonByName(target, 'Block')).not.toBeNull();
+      expect(buttonByName(target, 'Respectfully close')).not.toBeNull();
       expect(spy).not.toHaveBeenCalled();
-      buttonByName(target, 'Cancel')?.click();
-      await tick();
-      expect(spy).not.toHaveBeenCalled();
-      expect(buttonByName(target, 'Confirm punish')).toBeNull();
-      buttonByName(target, 'Punish')?.click();
-      await tick();
-      buttonByName(target, 'Confirm punish')?.click();
-      await vi.waitFor(() => expect(target.textContent).toMatch(/Status: Blocked/));
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect((target.querySelector('#composer') as HTMLInputElement).disabled).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps typing local: no reload and busy held until a gated send completes', async () => {
+    const base = createDevCmsg({ messageState: 'stored' });
+    await establishTom(base);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const client: CmsgClient = {
+      ...base,
+      sendMessage: async (peer, text) => {
+        await gate;
+        return base.sendMessage(peer, text);
+      },
+    };
+    const threadSpy = vi.spyOn(client, 'thread');
+    const { target, cleanup } = render(client, 'member-tom');
+    try {
+      await vi.waitFor(() => expect(target.querySelector('#composer')).not.toBeNull());
+      threadSpy.mockClear();
+      const input = target.querySelector('#composer') as HTMLInputElement;
+      for (const value of ['g', 'ga', 'gat', 'gate', 'gated hello']) {
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await tick();
+      }
+      expect(threadSpy).not.toHaveBeenCalled();
+      expect(target.textContent).toMatch(/tom-cooks/);
+      expect((target.querySelector('#composer') as HTMLInputElement).value).toBe('gated hello');
+      buttonByName(target, 'Send')?.click();
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Sending…/));
+      expect(threadSpy).not.toHaveBeenCalled();
+      release();
+      await vi.waitFor(() => expect(target.textContent).toMatch(/gated hello/));
+      expect(target.textContent).toMatch(/Stored for delivery/);
+      expect(target.textContent).not.toMatch(/Sending…/);
     } finally {
       cleanup();
     }
@@ -274,25 +306,20 @@ describe('direct chat peer switches', () => {
     }
   });
 
-  it('keeps drafts per peer and resets confirmation on switch', async () => {
+  it('keeps drafts per peer across switches', async () => {
     const client = createDevCmsg();
     await establishTom(client);
     const { target, api, cleanup } = renderHarness(client, 'member-tom');
     try {
       await vi.waitFor(() => expect(target.querySelector('#composer')).not.toBeNull());
       await fillComposer(target, 'note for tom');
-      buttonByName(target, 'Punish')?.click();
-      await tick();
-      expect(buttonByName(target, 'Confirm punish')).not.toBeNull();
       api.showPeer('member-ana');
       await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
-      expect(buttonByName(target, 'Confirm punish')).toBeNull();
       expect((target.querySelector('#composer') as HTMLInputElement).value).toBe('');
       await fillComposer(target, 'note for ana');
       api.showPeer('member-tom');
       await vi.waitFor(() => expect(target.textContent).toMatch(/tom-cooks/));
       expect((target.querySelector('#composer') as HTMLInputElement).value).toBe('note for tom');
-      expect(buttonByName(target, 'Confirm punish')).toBeNull();
     } finally {
       cleanup();
     }

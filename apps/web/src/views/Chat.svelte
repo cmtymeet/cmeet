@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { CmsgClient, Thread } from '../../../../core/src/cmsg.js';
   import { Button, Notice } from '../../../../ui/src/index.js';
   import { chatStrings as t } from '../strings/chat.js';
@@ -15,7 +16,6 @@
   let error = $state('');
   let sendBusy = $state(false);
   let actionBusy: string | null = $state(null);
-  let punishArmed = $state(false);
   let errorNode: HTMLDivElement | null = $state(null);
   // Generation: bumped on every peer change and on teardown so late
   // completions from an old peer can never touch the new view.
@@ -65,10 +65,11 @@
     const seq = loadSeq;
     thread = null;
     error = '';
-    draft = drafts[current] ?? '';
+    // Untracked: the per-peer draft store must not subscribe this lifecycle
+    // effect, or every keystroke would reset busy/thread/actions and reload.
+    draft = untrack(() => drafts[current] ?? '');
     sendBusy = false;
     actionBusy = null;
-    punishArmed = false;
     requestLoad(current, seq);
     const unsubscribe = client.subscribe((event) => {
       if (seq !== loadSeq) return;
@@ -114,7 +115,7 @@
     }
   }
 
-  async function runAction(kind: 'close' | 'block' | 'punish' | 'reopen') {
+  async function runAction(kind: 'close' | 'block' | 'reopen') {
     if (actionBusy !== null || sendBusy) return;
     const current = peer;
     const seq = loadSeq;
@@ -123,10 +124,8 @@
     try {
       if (kind === 'close') await client.closeConversation(current);
       else if (kind === 'block') await client.blockMember(current);
-      else if (kind === 'punish') await client.punishConversation(current);
       else await client.requestReopen(current);
       if (seq !== loadSeq) return;
-      punishArmed = false;
       requestLoad(current, seq);
     } catch (e) {
       if (seq !== loadSeq) return;
@@ -214,30 +213,7 @@
       <Button busy={actionBusy === 'block'} busyLabel={t.working} disabled={busy} onclick={() => void runAction('block')}>
         {t.blockAction}
       </Button>
-      {#if !punishArmed}
-        <Button variant="danger" disabled={busy} onclick={() => { punishArmed = true; }}>
-          {t.punishAction}
-        </Button>
-      {/if}
     </div>
-    {#if punishArmed}
-      <div class="confirm" role="group" aria-label={t.punishAction}>
-        <Notice tone="warning">{t.punishCost}</Notice>
-        <div class="row">
-          <Button
-            variant="danger"
-            busy={actionBusy === 'punish'}
-            busyLabel={t.working}
-            onclick={() => void runAction('punish')}
-          >
-            {t.confirmPunish}
-          </Button>
-          <Button disabled={actionBusy !== null} onclick={() => { punishArmed = false; }}>
-            {t.cancel}
-          </Button>
-        </div>
-      </div>
-    {/if}
   {:else if !error}
     <p aria-live="polite">{t.loading}</p>
   {/if}
@@ -256,9 +232,6 @@
     outline-offset: 2px;
   }
   .actions {
-    margin-top: 0.75rem;
-  }
-  .confirm {
     margin-top: 0.75rem;
   }
 </style>

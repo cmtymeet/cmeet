@@ -10,15 +10,15 @@ async function joinAndPublish(page: import('@playwright/test').Page) {
   await page.getByLabel(/Choose a handle/).fill('e2e-member');
   await page.getByRole('button', { name: 'Continue to join' }).click();
   await expect(page.getByRole('heading', { name: 'Lobby' })).toBeVisible();
-  await page.getByRole('link', { name: 'Profile' }).click();
+  await page.getByRole('link', { name: 'Profile', exact: true }).click();
   await page.locator('#profile-age').fill('34');
   await page.locator('#profile-neighbourhood').selectOption('North');
   await page.getByRole('button', { name: 'Save profile' }).click();
   await expect(page.getByText('Profile published and checked.')).toBeVisible();
 }
 
-// Direct chat detail: API-owned states, close/reopen, confirmed punish, peer change.
-test('chat detail states, close, reopen, punish and peer change', async ({ page }) => {
+// Direct chat detail: API-owned states, close/reopen, block, peer change.
+test('chat detail states, close, reopen, block and peer change', async ({ page }) => {
   await joinAndPublish(page);
 
   // Answer the incoming wave so the direct thread is established.
@@ -49,11 +49,8 @@ test('chat detail states, close, reopen, punish and peer change', async ({ page 
   await expect(page.getByText('Status: Reopen requested')).toBeVisible();
   await expect(page.getByLabel('Write a message')).toBeDisabled();
 
-  // Punish needs an explicit cost confirmation before anything happens.
-  await page.getByRole('button', { name: 'Punish', exact: true }).click();
-  await expect(page.getByText(/costs both participants/)).toBeVisible();
-  await expect(page.getByText('Status: Blocked')).not.toBeVisible();
-  await page.getByRole('button', { name: 'Confirm punish' }).click();
+  // Block from within the conversation; the API owns the blocked state.
+  await page.getByRole('button', { name: 'Block', exact: true }).click();
   await expect(page.getByText('Status: Blocked')).toBeVisible();
   await expect(page.getByLabel('Write a message')).toBeDisabled();
 

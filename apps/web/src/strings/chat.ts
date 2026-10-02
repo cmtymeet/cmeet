@@ -25,12 +25,7 @@ export const chatStrings = {
   receivedLabel: 'Received',
   closeAction: 'Respectfully close',
   blockAction: 'Block',
-  punishAction: 'Punish',
-  confirmPunish: 'Confirm punish',
-  cancel: 'Cancel',
   reopenAction: 'Request reopen',
-  punishCost:
-    'Punish costs both participants one introduction each and blocks the other member. It cannot be undone here.',
   loadFailed: 'This conversation is unavailable.',
   sendFailed: 'The message did not go out. Your draft is kept above.',
   actionFailed: 'That did not work. Try again.',
