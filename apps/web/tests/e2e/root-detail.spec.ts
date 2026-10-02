@@ -39,7 +39,7 @@ test('root sign-in, community settings and admins', async ({ page }) => {
   await expect(page.getByText('fixture-admin')).toHaveCount(0);
 
   // Switching communities loads the other community without member info.
-  await page.getByRole('button', { name: 'Select' }).first().click();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
   await expect(page.getByText('weekly').first()).toBeVisible();
   await expect(page.getByText('member-ana')).toHaveCount(0);
 });

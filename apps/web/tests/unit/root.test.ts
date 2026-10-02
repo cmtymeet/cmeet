@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
 import Root from '../../src/views/Root.svelte';
 import { createDevCmsg } from '../../../../core/src/dev-adapter.js';
-import type { CmsgClient } from '../../../../core/src/cmsg.js';
+import type { CmsgClient, RootCommunityView } from '../../../../core/src/cmsg.js';
 
 function render(client: CmsgClient) {
   const target = document.createElement('div');
@@ -72,21 +72,137 @@ describe('root settings surface', () => {
     try {
       buttonByName(target, 'Sign in as root')?.click();
       await vi.waitFor(() => expect(target.textContent).toMatch(/Garden neighbours/));
-      // While the first community loads, controls are disabled.
-      const selectButtons = [...target.querySelectorAll('.select-btn')] as HTMLButtonElement[];
-      expect(selectButtons.length).toBe(2);
-      // Wait for the auto-selected first community, then switch quickly.
-      await vi.waitFor(() => expect(target.textContent).toMatch(/Posting pace/));
-      const second = [...target.querySelectorAll('.select-btn')].find((b) =>
-        b.textContent?.includes('Select'),
+      // Switching stays available while the first community is still loading.
+      await vi.waitFor(() => {
+        const buttons = [...target.querySelectorAll('.select-btn')] as HTMLButtonElement[];
+        expect(buttons.length).toBe(2);
+        for (const button of buttons) expect(button.disabled).toBe(false);
+      });
+      // A → B → A: the slow first A response must not beat the second A request.
+      const selectOther = () =>
+        [...target.querySelectorAll('.select-btn')].find(
+          (b) => b.textContent?.trim() === 'Select',
+        ) as HTMLButtonElement;
+      selectOther()?.click();
+      await vi.waitFor(() => expect(target.textContent).toMatch(/weekly/));
+      selectOther()?.click();
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Garden admin/));
+      expect(seen).toEqual(['garden-neighbours', 'evening-choir', 'garden-neighbours']);
+      expect(target.textContent).toMatch(/slow/);
+      expect(target.textContent).not.toMatch(/weekly/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('locks community selection while a mutation saves', async () => {
+    const base = createDevCmsg();
+    const slow: CmsgClient = {
+      ...base,
+      rootSetSetting: async (...args: Parameters<CmsgClient['rootSetSetting']>) => {
+        await new Promise((r) => setTimeout(r, 60));
+        return base.rootSetSetting(...args);
+      },
+    };
+    const { target, cleanup } = render(slow);
+    try {
+      await signIn(target);
+      const radios = [...target.querySelectorAll('input[name="mode-postingPace"]')] as HTMLInputElement[];
+      radios.find((r) => r.value === 'empty')!.click();
+      await tick();
+      buttonByName(target, 'Save Posting pace')?.click();
+      await vi.waitFor(() => {
+        const buttons = [...target.querySelectorAll('.select-btn')] as HTMLButtonElement[];
+        expect(buttons.length).toBe(2);
+        for (const button of buttons) expect(button.disabled).toBe(true);
+      });
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Saved/));
+      const buttons = [...target.querySelectorAll('.select-btn')] as HTMLButtonElement[];
+      for (const button of buttons) expect(button.disabled).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('ignores a late community response after teardown', async () => {
+    const base = createDevCmsg();
+    let releaseLoad!: (view: RootCommunityView) => void;
+    const gated: CmsgClient = {
+      ...base,
+      rootCommunity: async (id: string) => {
+        if (id !== 'evening-choir') return base.rootCommunity(id);
+        return new Promise<RootCommunityView>((resolve) => {
+          releaseLoad = resolve;
+        });
+      },
+    };
+    const first = render(gated);
+    try {
+      await signIn(first.target);
+      const selectOther = [...first.target.querySelectorAll('.select-btn')].find(
+        (b) => b.textContent?.trim() === 'Select',
       ) as HTMLButtonElement;
-      second?.click();
-      await vi.waitFor(() => expect(target.textContent).toMatch(/evening-choir|Evening choir/));
-      // Both community IDs were requested; the stale first response never wins.
-      expect(seen).toContain('garden-neighbours');
-      expect(seen).toContain('evening-choir');
-      expect(target.textContent).toMatch(/weekly/);
-      expect(target.textContent).not.toMatch(/Garden admin/);
+      selectOther?.click();
+      await vi.waitFor(() => expect(first.target.textContent).toMatch(/Loading community/));
+    } finally {
+      first.cleanup();
+    }
+    // The gated response resolves after teardown: it must not throw or leak.
+    releaseLoad(await base.rootCommunity('evening-choir'));
+    await new Promise((r) => setTimeout(r, 20));
+    // A fresh mount over the same adapter still signs in and loads cleanly.
+    const second = render(gated);
+    try {
+      await signIn(second.target);
+      expect(second.target.textContent).toMatch(/Garden admin/);
+    } finally {
+      second.cleanup();
+    }
+  });
+
+  it('clears a typed admin ID when changing community', async () => {
+    const { target, cleanup } = render(createDevCmsg());
+    try {
+      await signIn(target);
+      await fill(target, 'root-admin-id', 'stale-admin');
+      const selectOther = [...target.querySelectorAll('.select-btn')].find(
+        (b) => b.textContent?.trim() === 'Select',
+      ) as HTMLButtonElement;
+      selectOther?.click();
+      await vi.waitFor(() => expect(target.textContent).toMatch(/weekly/));
+      const input = target.querySelector('#root-admin-id') as HTMLInputElement | null;
+      expect(input).not.toBeNull();
+      expect(input!.value).toBe('');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps another setting’s unsaved draft when one setting saves', async () => {
+    const { target, cleanup } = render(createDevCmsg());
+    try {
+      await signIn(target);
+      // Drive the real change handler for the platform-managed setting to hold
+      // an unsaved draft (its UI stays disabled; only the draft is staged).
+      const joiningEmpty = target.querySelector(
+        'input[name="mode-joining"][value="empty"]',
+      ) as HTMLInputElement | null;
+      expect(joiningEmpty).not.toBeNull();
+      joiningEmpty!.checked = true;
+      joiningEmpty!.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick();
+
+      const posting = [...target.querySelectorAll('input[name="mode-postingPace"]')] as HTMLInputElement[];
+      posting.find((r) => r.value === 'empty')!.click();
+      await tick();
+      buttonByName(target, 'Save Posting pace')?.click();
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Saved/));
+      // Only the saved key reseeds; the staged joining draft is preserved.
+      const kept = target.querySelector(
+        'input[name="mode-joining"][value="empty"]',
+      ) as HTMLInputElement | null;
+      expect(kept?.checked).toBe(true);
+      expect(target.textContent).toMatch(/stops inheritance/);
     } finally {
       cleanup();
     }

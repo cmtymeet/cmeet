@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import type {
     CmsgClient,
     RootCommunity,
     RootCommunityView,
+    RootSetting,
   } from '../../../../core/src/cmsg.js';
   import { Button, Notice } from '../../../../ui/src/index.js';
   import { rootStrings as s } from '../strings/root.js';
@@ -33,27 +34,40 @@
 
   /** Generation guard: a slow community response never overwrites a newer selection. */
   let requestSeq = 0;
+  let alive = true;
+  onDestroy(() => {
+    alive = false;
+    requestSeq++;
+  });
 
   function displayName(id: string): string {
     return communities.find((c) => c.communityId === id)?.displayName ?? id;
   }
 
+  function seedDraft(mode: SettingMode, value: string) {
+    return { mode, value };
+  }
+
+  function draftFor(setting: RootSetting) {
+    const mode: SettingMode = setting.inherited
+      ? 'inherit'
+      : setting.overrideValue === null
+        ? 'empty'
+        : 'value';
+    return seedDraft(mode, setting.overrideValue ?? '');
+  }
+
   function seedDrafts(next: RootCommunityView) {
     const seeded: Record<string, { mode: SettingMode; value: string }> = {};
     for (const setting of next.settings) {
-      const mode: SettingMode = setting.inherited
-        ? 'inherit'
-        : setting.overrideValue === null
-          ? 'empty'
-          : 'value';
-      seeded[setting.key] = { mode, value: setting.overrideValue ?? '' };
+      seeded[setting.key] = draftFor(setting);
     }
     drafts = seeded;
   }
 
   function showError(message: string) {
     error = message;
-    void tick().then(() => errorRef?.focus());
+    if (alive) void tick().then(() => errorRef?.focus());
   }
 
   async function signIn() {
@@ -62,11 +76,14 @@
     error = '';
     try {
       await client.signInRole('root');
+      if (!alive) return;
       communities = await client.rootCommunities();
+      if (!alive) return;
       signedIn = true;
       const first = communities[0]?.communityId ?? null;
       if (first) await selectCommunity(first);
     } catch (e) {
+      if (!alive) return;
       showError(e instanceof Error ? e.message : s.signInFailed);
     } finally {
       busy = false;
@@ -74,23 +91,25 @@
   }
 
   async function selectCommunity(id: string) {
+    if (savingKey !== null || adminBusy) return;
     const seq = ++requestSeq;
     selected = id;
     view = null;
     settingNote = '';
     adminNote = '';
+    adminInput = '';
     error = '';
     loadingCommunity = true;
     try {
       const next = await client.rootCommunity(id);
-      if (seq !== requestSeq) return;
+      if (!alive || seq !== requestSeq || selected !== id) return;
       view = next;
       seedDrafts(next);
     } catch (e) {
-      if (seq !== requestSeq) return;
+      if (!alive || seq !== requestSeq || selected !== id) return;
       showError(e instanceof Error ? e.message : s.settingFailed);
     } finally {
-      if (seq === requestSeq) loadingCommunity = false;
+      if (alive && seq === requestSeq) loadingCommunity = false;
     }
   }
 
@@ -103,10 +122,13 @@
   }
 
   async function saveSetting(key: string) {
-    if (!selected || savingKey || loadingCommunity) return;
+    if (!selected || controlsDisabled) return;
     const draft = drafts[key];
     if (!draft) return;
     const communityId = selected;
+    const seq = requestSeq;
+    const mode = draft.mode;
+    const value = draft.value;
     savingKey = key;
     error = '';
     settingNote = '';
@@ -114,25 +136,26 @@
       const next = await client.rootSetSetting(
         communityId,
         key,
-        draft.mode,
-        draft.mode === 'value' ? draft.value : undefined,
+        mode,
+        mode === 'value' ? value : undefined,
       );
-      if (communityId !== selected) return;
+      if (!alive || seq !== requestSeq || selected !== communityId) return;
       view = next;
-      seedDrafts(next);
+      const saved = next.settings.find((item) => item.key === key);
+      if (saved) drafts = { ...drafts, [key]: draftFor(saved) };
       settingNote = `${key}: ${s.settingSaved}`;
     } catch (e) {
-      if (communityId !== selected) return;
+      if (!alive || seq !== requestSeq || selected !== communityId) return;
       showError(e instanceof Error ? e.message : s.settingFailed);
     } finally {
-      if (communityId === selected) savingKey = null;
-      else savingKey = null;
+      savingKey = null;
     }
   }
 
   async function addAdmin() {
-    if (!selected || adminBusy || loadingCommunity) return;
+    if (!selected || controlsDisabled) return;
     const communityId = selected;
+    const seq = requestSeq;
     const adminId = adminInput.trim();
     error = '';
     adminNote = '';
@@ -143,12 +166,12 @@
     adminBusy = true;
     try {
       const next = await client.rootSetAdmin(communityId, adminId, true);
-      if (communityId !== selected) return;
+      if (!alive || seq !== requestSeq || selected !== communityId) return;
       view = next;
       adminInput = '';
       adminNote = s.settingSaved;
     } catch (e) {
-      if (communityId !== selected) return;
+      if (!alive || seq !== requestSeq || selected !== communityId) return;
       showError(e instanceof Error ? e.message : s.adminFailed);
     } finally {
       adminBusy = false;
@@ -156,18 +179,19 @@
   }
 
   async function removeAdmin(adminId: string) {
-    if (!selected || adminBusy || loadingCommunity) return;
+    if (!selected || controlsDisabled) return;
     const communityId = selected;
+    const seq = requestSeq;
     error = '';
     adminNote = '';
     adminBusy = true;
     try {
       const next = await client.rootSetAdmin(communityId, adminId, false);
-      if (communityId !== selected) return;
+      if (!alive || seq !== requestSeq || selected !== communityId) return;
       view = next;
       adminNote = s.settingSaved;
     } catch (e) {
-      if (communityId !== selected) return;
+      if (!alive || seq !== requestSeq || selected !== communityId) return;
       showError(e instanceof Error ? e.message : s.adminFailed);
     } finally {
       adminBusy = false;
@@ -175,6 +199,9 @@
   }
 
   const controlsDisabled = $derived(busy || loadingCommunity || savingKey !== null || adminBusy);
+  /** Community switching stays available while loading so the generation
+   * guard is exercised; it locks only while a mutation is being saved. */
+  const selectionLocked = $derived(savingKey !== null || adminBusy);
 </script>
 
 <section class="page root-page" aria-labelledby="root-title">
@@ -198,7 +225,7 @@
           <button
             class="select-btn"
             aria-pressed={selected === community.communityId}
-            disabled={loadingCommunity}
+            disabled={selectionLocked}
             onclick={() => void selectCommunity(community.communityId)}
           >{selected === community.communityId ? s.selected : s.select}</button>
         </li>
@@ -239,7 +266,7 @@
               <p class="muted">{s.managedByPlatform}</p>
             {/if}
             {#if draft}
-              <fieldset class="mode-group" disabled={!setting.editable || savingKey !== null || loadingCommunity || adminBusy}>
+              <fieldset class="mode-group" disabled={!setting.editable || controlsDisabled}>
                 <legend>{s.modeLegend} · {setting.label}</legend>
                 <label>
                   <input
@@ -278,7 +305,7 @@
                   <input
                     id="root-value-{setting.key}"
                     value={draft.value}
-                    disabled={!setting.editable || savingKey !== null || loadingCommunity || adminBusy}
+                    disabled={!setting.editable || controlsDisabled}
                     oninput={(e) => (drafts = {
                       ...drafts,
                       [setting.key]: { ...draft, value: (e.currentTarget as HTMLInputElement).value },
@@ -291,7 +318,7 @@
               <Button
                 variant="primary"
                 busy={savingKey === setting.key}
-                disabled={!setting.editable || savingKey !== null || loadingCommunity || adminBusy}
+                disabled={!setting.editable || controlsDisabled}
                 onclick={() => void saveSetting(setting.key)}
               >{s.saveSetting} {setting.label}</Button>
             {/if}
