@@ -10,6 +10,11 @@ async function join(page: import('@playwright/test').Page) {
   await page.getByLabel(/Choose a handle/).fill('groups-detail-member');
   await page.getByRole('button', { name: 'Continue to join' }).click();
   await expect(page.getByRole('heading', { name: 'Lobby' })).toBeVisible();
+  await page.getByRole('link', { name: 'Profile', exact: true }).click();
+  await page.locator('#profile-age').fill('34');
+  await page.locator('#profile-neighbourhood').selectOption('North');
+  await page.getByRole('button', { name: 'Save profile' }).click();
+  await expect(page.getByText('Profile published and checked.')).toBeVisible();
 }
 
 // Groups list renders supplied levels, bands, opening progress and

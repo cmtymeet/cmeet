@@ -151,7 +151,7 @@ describe('groups list', () => {
       const article = articleByName(target, 'Saturday market')!;
       buttonIn(article, 'Join')?.click();
       await tick();
-      const dialog = target.querySelector('[role="dialog"]');
+      const dialog = target.querySelector('dialog');
       expect(dialog).not.toBeNull();
       expect(dialog?.textContent).toMatch(/consenting/);
       const confirm = buttonIn(dialog!, /Join Saturday market/)!;
@@ -160,8 +160,8 @@ describe('groups list', () => {
       const check = target.querySelector('#join-consent-check') as HTMLInputElement;
       check.click();
       await tick();
-      expect(buttonIn(target.querySelector('[role="dialog"]')!, /Join Saturday market/)!.disabled).toBe(false);
-      buttonIn(target.querySelector('[role="dialog"]')!, /Join Saturday market/)?.click();
+      expect(buttonIn(target.querySelector('dialog')!, /Join Saturday market/)!.disabled).toBe(false);
+      buttonIn(target.querySelector('dialog')!, /Join Saturday market/)?.click();
       await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
       expect(spy).toHaveBeenCalledWith('group-market', true);
       await vi.waitFor(() => expect(window.location.hash).toContain('group-market'));
@@ -181,11 +181,11 @@ describe('groups list', () => {
       const article = articleByName(target, 'Newcomers opening')!;
       buttonIn(article, 'Join')?.click();
       await tick();
-      expect(target.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(target.querySelector('dialog')).not.toBeNull();
       expect(spy).not.toHaveBeenCalled();
       (target.querySelector('#join-consent-check') as HTMLInputElement).click();
       await tick();
-      buttonIn(target.querySelector('[role="dialog"]')!, /Join Newcomers opening/)?.click();
+      buttonIn(target.querySelector('dialog')!, /Join Newcomers opening/)?.click();
       await vi.waitFor(() => expect(spy).toHaveBeenCalledWith('group-opening', true));
     } finally {
       cleanup();
@@ -208,7 +208,7 @@ describe('groups list', () => {
       await vi.waitFor(() => expect(target.textContent).toMatch(/Saturday market/));
       buttonIn(articleByName(target, 'Saturday market')!, 'Join')?.click();
       await tick();
-      const dialog = target.querySelector('[role="dialog"]')!;
+      const dialog = target.querySelector('dialog')!;
       (target.querySelector('#join-consent-check') as HTMLInputElement).click();
       await tick();
       buttonIn(dialog, /Join Saturday market/)?.click();
@@ -219,13 +219,13 @@ describe('groups list', () => {
       expect(buttonIn(articleByName(target, 'Saturday market')!, 'Join')!.disabled).toBe(true);
       rejectJoin(new Error('The groups service is unavailable. Try again later.'));
       await vi.waitFor(() => expect(dialog.querySelector('[role="alert"]')).not.toBeNull());
-      expect(dialog.textContent).toMatch(/did not work/);
+      expect(dialog.textContent).toMatch(/groups service is unavailable/);
       // The dialog stays open for an explicit retry or cancel; nothing navigated.
-      expect(target.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(target.querySelector('dialog')).not.toBeNull();
       expect(window.location.hash).not.toContain('group-market');
       buttonIn(dialog, 'Cancel')?.click();
       await tick();
-      expect(target.querySelector('[role="dialog"]')).toBeNull();
+      expect(target.querySelector('dialog')).toBeNull();
     } finally {
       cleanup();
     }
@@ -239,7 +239,7 @@ describe('groups list', () => {
       await vi.waitFor(() => expect(target.textContent).toMatch(/Quiet room/));
       buttonIn(articleByName(target, 'Quiet room')!, 'Join')?.click();
       await tick();
-      const dialog = target.querySelector('[role="dialog"]')!;
+      const dialog = target.querySelector('dialog')!;
       expect(dialog.textContent).toMatch(/private profiles/);
       expect(dialog.textContent).toMatch(/consenting to that visibility/);
     } finally {
@@ -385,7 +385,7 @@ describe('groups list', () => {
       await vi.waitFor(() => expect(target.textContent).toMatch(/Evening choir/));
       buttonIn(articleByName(target, 'Evening choir')!, 'Join')?.click();
       await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
-      expect(target.textContent).toMatch(/did not work/);
+      expect(target.textContent).toMatch(/Fixture failure for joinGroup/);
     } finally {
       cleanup();
     }
