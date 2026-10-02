@@ -32,13 +32,13 @@ describe('device presentation', () => {
       await tick(); button(target, 'Restore from surviving copies').click();
       await vi.waitFor(() => expect(target.textContent).toContain('Recovery result'));
       expect(target.textContent).toContain((await client.restoreVault()).message);
-    } finally { await unmount(view); }
+    } finally { await unmount(view); target.remove(); }
   });
   it('keeps refused pairing visible without adding a device', async () => {
     const client = createDevCmsg({ failActions: ['addDevice'] });
-    const target = document.createElement('div'); const view = mount(Devices, { target, props: { client } });
+    const target = document.createElement('div'); document.body.append(target); const view = mount(Devices, { target, props: { client } });
     try {
-      await tick(); button(target, 'Add a device').click();
+      await vi.waitFor(() => expect(target.textContent).toContain('My phone')); button(target, 'Add a device').click();
       await vi.waitFor(() => expect(target.textContent).toContain('Fixture failure for addDevice'));
       expect(await client.devices()).toHaveLength(1);
     } finally { await unmount(view); }
