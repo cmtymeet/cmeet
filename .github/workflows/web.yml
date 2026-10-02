@@ -66,7 +66,16 @@ jobs:
 
       - name: Unit and component tests
         if: needs.web-impact.outputs.relevant == 'true'
-        run: npm run test:unit
+        run: npm run test:unit -- --coverage
+
+      - name: Upload web coverage reports
+        if: always() && needs.web-impact.outputs.relevant == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: web-coverage-reports
+          path: apps/web/coverage
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Build
         if: needs.web-impact.outputs.relevant == 'true'

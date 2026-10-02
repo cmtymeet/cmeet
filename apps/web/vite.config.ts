@@ -22,5 +22,12 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['tests/unit/**/*.test.ts'],
+    coverage: {
+      provider: 'v8',
+      reportsDirectory: './coverage',
+      reporter: ['text', 'json', 'json-summary', 'lcov'],
+      include: ['../../ui/src/**/*.svelte', '../../ui/src/**/*.ts', '../../core/src/**/*.ts'],
+      thresholds: { statements: 100, branches: 100, functions: 100, lines: 100 },
+    },
   },
 });
