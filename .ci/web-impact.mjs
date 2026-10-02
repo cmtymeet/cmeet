@@ -11,7 +11,7 @@ export function classifyChangedFiles(files) {
   let web = false;
   let cli = false;
   for (const file of files) {
-    if (/^(apps\/web\/|ui\/|core\/|\.ci\/assert-asset-closure\.mjs$)/.test(file)) web = true;
+    if (/^(apps\/web\/|ui\/|core\/|\.ci\/assert-(asset-closure|web-coverage)\.mjs$)/.test(file)) web = true;
     else if (/^(apps\/cli\/|tests\/toy\/|\.ci\/policy\/)/.test(file)) cli = true;
     else if (/^(\.github\/workflows\/(web|ci|dependabot-auto-merge)\.yml|\.ci\/web-impact\.(mjs|test\.mjs))$/.test(file)) web = true;
     else if (/^(docs\/|research\/|README\.md$|LICENSE[^/]*$|\.gitignore$)/.test(file)) continue;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { memberName } from '../../../../ui/src/member-name.js';
   import { onMount } from 'svelte';
   import type { CmsgClient, Contact, RelationState } from '../../../../core/src/cmsg.js';
   import { Button, Notice, EmptyState } from '../../../../ui/src/index.js';
@@ -124,7 +125,7 @@
       {#each contacts as contact (contact.memberId)}
         <li>
           <span>
-            <strong>{contact.handle}</strong><br />
+            <strong>{memberName(contact.handle, contact.displayName)}</strong><br />
             <small class="muted">{presenceOf(contact)} · {statusOf(contact)}</small>
             {#if contact.blockedByMe || contact.relation === 'blocked'}
               <br /><small class="muted">{s.blockedNote}</small>

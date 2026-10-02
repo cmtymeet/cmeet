@@ -104,7 +104,7 @@
     {:else if route.name === 'lobby'}
       <Lobby client={session.client} />
     {:else if route.name === 'profile'}
-      <ProfileEditor client={session.client} />
+      <ProfileEditor client={session.client} handle={session.snapshot.lobby?.handle} />
     {:else if route.name === 'forum'}
       <Forum client={session.client} />
     {:else if route.name === 'waves'}

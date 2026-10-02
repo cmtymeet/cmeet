@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { memberName } from '../../../../ui/src/member-name.js';
   import { untrack } from 'svelte';
   import type { CmsgClient, Thread } from '../../../../core/src/cmsg.js';
   import { Button, Notice } from '../../../../ui/src/index.js';
@@ -144,7 +145,7 @@
 </script>
 
 <section class="page" aria-labelledby="chat-title">
-  <h1 id="chat-title">{thread?.peerHandle ?? t.title}</h1>
+  <h1 id="chat-title">{thread ? memberName(thread.peerHandle, thread.peerDisplayName) : t.title}</h1>
   {#if thread}
     <p class="muted">Status: {statusLabel}{thread.established ? ` · ${t.establishedNote}` : ''}</p>
     {#if !thread.established && threadState === 'active'}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { memberName } from '../../../../ui/src/member-name.js';
   import { onMount } from 'svelte';
   import type {
     CmsgClient,
@@ -409,6 +410,7 @@
             {#if result.status === 'accepted' && result.profile}
               <p class="muted">{s.lookBackNote}</p>
               <ProfilePreview
+                handle={entry.handle}
                 schema={result.profile.schema}
                 values={result.profile.values}
                 frontLabel={s.previewFront}
@@ -464,7 +466,7 @@
       {#each exchanges as exchange (exchange.id)}
         <li>
           <div>
-            <strong>{exchange.handle}</strong>
+            <strong>{memberName(exchange.handle, exchange.displayName)}</strong>
             <span class="muted">
               {exchange.direction === 'incoming' ? s.incomingLabel : s.outgoingLabel}
               · {exchange.result.status === 'accepted' ? s.acceptedLabel : s.rejectedLabel}

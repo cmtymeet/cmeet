@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { memberName } from '../../../../ui/src/member-name.js';
   import { onMount } from 'svelte';
   import type {
     CmsgClient,
@@ -62,8 +63,9 @@
 
   function handleFor(memberId: string): string {
     const member = group?.members?.find((m) => m.id === memberId);
-    if (member) return member.handle;
-    return contactList.find((c) => c.memberId === memberId)?.handle ?? s.unknownMember;
+    if (member) return memberName(member.handle, member.displayName);
+    const contact = contactList.find((c) => c.memberId === memberId);
+    return contact ? memberName(contact.handle, contact.displayName) : s.unknownMember;
   }
 
   const selectedHandles: string[] = $derived(selected.map((memberId) => handleFor(memberId)));
