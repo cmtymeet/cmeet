@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
+import { writable } from 'svelte/store';
 import GroupDetail from '../../src/views/GroupDetail.svelte';
+import GroupDetailHarness from './fixtures/GroupDetailHarness.svelte';
 import { createDevCmsg } from '../../../../core/src/dev-adapter.js';
 import type { CmsgClient, GroupView } from '../../../../core/src/cmsg.js';
 
@@ -25,8 +27,45 @@ function detailGroup(): GroupView {
     lineage: ['detail-root'],
     seatBudget: { enabled: false, label: 'No seat budget in this circle.' },
     welcomePrompt: 'Welcome! Say hello and tell the group one weekend habit.',
-    members: [{ id: 'member-ana', handle: 'ana-walks' }],
+    members: [
+      { id: 'member-ana', handle: 'ana-walks' },
+      { id: 'member-tom', handle: 'tom-cooks' },
+    ],
     forks: [],
+  };
+}
+
+/** Boundary timing wrapper: the real adapter, with a delayed groups() read. */
+function withGroupsDelay(base: CmsgClient, ms: number): CmsgClient {
+  return {
+    ...base,
+    groups: async () => {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      return base.groups();
+    },
+  };
+}
+
+/** Boundary timing wrapper: slow first groups() read, fast follow-ups. */
+function withDecreasingGroupsDelay(base: CmsgClient, firstMs: number, restMs: number): CmsgClient {
+  let calls = 0;
+  return {
+    ...base,
+    groups: async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, calls === 1 ? firstMs : restMs));
+      return base.groups();
+    },
+  };
+}
+/** Boundary timing wrapper: the real adapter, with a delayed group send. */
+function withSendDelay(base: CmsgClient, ms: number): CmsgClient {
+  return {
+    ...base,
+    sendGroupMessage: async (id: string, text: string) => {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      return base.sendGroupMessage(id, text);
+    },
   };
 }
 
@@ -43,9 +82,31 @@ function render(client: CmsgClient, id: string) {
   };
 }
 
+function renderHarness(client: CmsgClient, initialId: string) {
+  const target = document.createElement('div');
+  document.body.appendChild(target);
+  const route = writable(initialId);
+  const component = mount(GroupDetailHarness, { target, props: { client, route } });
+  return {
+    target,
+    route,
+    cleanup: () => {
+      unmount(component);
+      target.remove();
+    },
+  };
+}
+
 function buttonByName(target: HTMLElement, name: string): HTMLButtonElement | null {
   const buttons = [...target.querySelectorAll('button')];
   return (buttons.find((b) => b.textContent?.trim() === name) as HTMLButtonElement) ?? null;
+}
+
+function checkboxByName(target: HTMLElement, name: string): HTMLInputElement | null {
+  const boxes = [...target.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+  return (
+    boxes.find((box) => box.closest('label')?.textContent?.trim() === name) ?? null
+  );
 }
 
 async function fill(target: HTMLElement, id: string, value: string) {
@@ -109,7 +170,24 @@ describe('group detail conversation', () => {
     }
   });
 
-  it('previews the proposed roster, then records the proposal without claiming anyone moved', async () => {
+  it('locks the composer while sending so success cannot discard newer text', async () => {
+    const base = createDevCmsg({ groups: [detailGroup()] });
+    const client = withSendDelay(base, 60);
+    const { target, cleanup } = render(client, 'group-detail');
+    try {
+      await vi.waitFor(() => expect(target.querySelector('#group-composer')).not.toBeNull());
+      await fill(target, 'group-composer', 'Hello neighbours!');
+      buttonByName(target, 'Send')?.click();
+      await tick();
+      expect((target.querySelector('#group-composer') as HTMLInputElement).disabled).toBe(true);
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Hello neighbours!/));
+      expect((target.querySelector('#group-composer') as HTMLInputElement).value).toBe('');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('chooses the roster from cmsg handles, then records the proposal without claiming anyone moved', async () => {
     const client = createDevCmsg({ groups: [detailGroup()] });
     const { target, cleanup } = render(client, 'group-detail');
     try {
@@ -117,9 +195,15 @@ describe('group detail conversation', () => {
       await selectKind(target, 'add');
       await fill(target, 'fork-label', 'Garden helpers');
       await fill(target, 'fork-detail', 'Neighbours who water on Saturdays.');
-      await fill(target, 'fork-roster', 'member-ana, member-tom');
-      expect(target.textContent).toMatch(/Roster preview/);
-      expect(target.textContent).toMatch(/member-ana, member-tom/);
+      expect(target.querySelector('#fork-target')).toBeNull();
+      // No raw member id entry: roster comes from cmsg-supplied checkboxes.
+      expect(target.querySelector('#fork-roster')).toBeNull();
+      checkboxByName(target, 'ana-walks')?.click();
+      await tick();
+      checkboxByName(target, 'tom-cooks')?.click();
+      await tick();
+      expect(target.textContent).toMatch(/Chosen roster/);
+      expect(target.textContent).toMatch(/ana-walks, tom-cooks/);
       buttonByName(target, 'Propose fork')?.click();
       await vi.waitFor(() => expect(target.textContent).toMatch(/Proposal recorded/));
       expect(target.textContent).toMatch(/Nobody has moved/);
@@ -131,7 +215,26 @@ describe('group detail conversation', () => {
     }
   });
 
-  it('consents explicitly while nonmovers keep the original group', async () => {
+  it('shows the merge target selector only for merges, with cmsg group names', async () => {
+    const client = createDevCmsg();
+    const { target, cleanup } = render(client, 'group-garden');
+    try {
+      await vi.waitFor(() => expect(target.querySelector('#fork-kind')).not.toBeNull());
+      expect(target.querySelector('#fork-target')).toBeNull();
+      await selectKind(target, 'merge');
+      const select = target.querySelector('#fork-target') as HTMLSelectElement | null;
+      expect(select).not.toBeNull();
+      const options = [...select!.options].map((o) => o.textContent);
+      expect(options).toContain('Evening choir');
+      expect(options).not.toContain('Community garden');
+      await selectKind(target, 'split');
+      expect(target.querySelector('#fork-target')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('consents explicitly from the returned outcome while nonmovers keep the original group', async () => {
     const client = createDevCmsg({ groups: [detailGroup()] });
     const { target, cleanup } = render(client, 'group-detail');
     try {
@@ -139,10 +242,15 @@ describe('group detail conversation', () => {
       await selectKind(target, 'split');
       await fill(target, 'fork-label', 'Quiet half');
       await fill(target, 'fork-detail', 'A smaller circle for slow weekends.');
+      checkboxByName(target, 'ana-walks')?.click();
+      await tick();
       buttonByName(target, 'Propose fork')?.click();
       await vi.waitFor(() => expect(target.textContent).toMatch(/Consent to this fork/));
+      // The returned fork renders its roster by handle, not raw ids.
+      expect(target.textContent).toMatch(/ana-walks/);
       buttonByName(target, 'Consent to this fork')?.click();
-      await vi.waitFor(() => expect(target.textContent).toMatch(/Nonmovers keep the original group/));
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Consent recorded in/));
+      expect(target.textContent).toMatch(/Nonmovers keep the original group/);
       const groups = await client.groups();
       expect(groups.find((g) => g.id === 'group-detail')?.joined).toBe(true);
       expect(target.querySelector('h1')?.textContent).toBe('Detail neighbours');
@@ -168,13 +276,13 @@ describe('group detail conversation', () => {
     }
   });
 
-  it('keeps first direct contact on waves, never as free messaging here', async () => {
+  it('keeps first direct contact a wave without pointing at a peer-targeting screen', async () => {
     const client = createDevCmsg({ groups: [detailGroup()] });
     const { target, cleanup } = render(client, 'group-detail');
     try {
       await vi.waitFor(() => expect(target.querySelector('h1')).not.toBeNull());
-      expect(target.textContent).toMatch(/send a wave/);
-      expect(target.querySelector('a[href="#/waves"]')).not.toBeNull();
+      expect(target.textContent).toMatch(/send them a wave/);
+      expect(target.querySelector('a[href="#/waves"]')).toBeNull();
     } finally {
       cleanup();
     }
@@ -200,22 +308,67 @@ describe('group detail conversation', () => {
     }
   });
 
-  it('renders the routed group and switches cleanly between ids', async () => {
-    const client = createDevCmsg();
-    const first = render(client, 'group-garden');
+  it('switches one mounted instance to the new route and ignores the slower stale load', async () => {
+    const base = createDevCmsg();
+    // The garden read lands last; only the token guard keeps it from winning.
+    const client = withDecreasingGroupsDelay(base, 120, 20);
+    const { target, route, cleanup } = renderHarness(client, 'group-garden');
     try {
-      await vi.waitFor(() => expect(first.target.querySelector('h1')).not.toBeNull());
-      expect(first.target.querySelector('h1')?.textContent).toBe('Community garden');
+      route.set('group-choir');
+      await tick();
+      await vi.waitFor(() => expect(target.querySelector('h1')?.textContent).toBe('Evening choir'));
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await tick();
+      expect(target.querySelector('h1')?.textContent).toBe('Evening choir');
+      expect(target.textContent).not.toMatch(/Community garden/);
     } finally {
-      first.cleanup();
+      cleanup();
     }
-    const second = render(client, 'group-choir');
+  });
+
+  it('prefers a newer groups event over a stale in-flight load', async () => {
+    const base = createDevCmsg();
+    const client = withGroupsDelay(base, 60);
+    const { target, route, cleanup } = renderHarness(client, 'group-garden');
     try {
-      await vi.waitFor(() => expect(second.target.querySelector('h1')).not.toBeNull());
-      expect(second.target.querySelector('h1')?.textContent).toBe('Evening choir');
-      expect(second.target.textContent).not.toMatch(/Community garden/);
+      route.set('group-choir');
+      await tick();
+      await base.proposeFork({
+        groupId: 'group-choir',
+        kind: 'split',
+        label: 'Evening half',
+        detail: 'A smaller circle for slow songs.',
+      });
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Evening half/));
+      expect(target.querySelector('h1')?.textContent).toBe('Evening choir');
+      expect(target.textContent).not.toMatch(/Community garden/);
     } finally {
-      second.cleanup();
+      cleanup();
     }
+  });
+
+  it('shows unavailable when the routed group is absent and never renders it', async () => {
+    const base = createDevCmsg({ groups: [detailGroup()] });
+    const onlySeeded: CmsgClient = {
+      ...base,
+      groups: async () => (await base.groups()).filter((g) => g.id !== 'group-detail'),
+    };
+    const { target, cleanup } = render(onlySeeded, 'group-detail');
+    try {
+      await vi.waitFor(() => expect(target.textContent).toMatch(/not available/));
+      expect(target.querySelector('h1')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('tears down mid-load without errors or stray content', async () => {
+    const base = createDevCmsg();
+    const client = withGroupsDelay(base, 80);
+    const { target, cleanup } = render(client, 'group-garden');
+    cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await tick();
+    expect(document.body.contains(target)).toBe(false);
   });
 });

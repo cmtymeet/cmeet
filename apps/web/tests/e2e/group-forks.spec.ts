@@ -12,7 +12,7 @@ async function join(page: import('@playwright/test').Page) {
   await expect(page.getByRole('heading', { name: 'Lobby' })).toBeVisible();
 }
 
-// Group conversation with consent forks: level, band, roster preview, consent, welcome, suggestion.
+// Group conversation with consent forks: level, band, handle roster, consent, welcome, suggestion.
 test('group detail proposes and consents forks without moving anyone', async ({ page }) => {
   await join(page);
 
@@ -24,34 +24,43 @@ test('group detail proposes and consents forks without moving anyone', async ({ 
   await expect(page.getByText(/Newcomers start fresh/)).toBeVisible();
   await expect(page.getByText(/garden-neighbours/)).toBeVisible();
   await expect(page.getByText('Seat budget')).not.toBeVisible();
-  await expect(page.getByText(/send a wave/)).toBeVisible();
+  await expect(page.getByText(/send them a wave/)).toBeVisible();
 
   // No admin operations exist on groups.
   await expect(page.getByRole('button', { name: /kick|expel|make admin|vote out/i })).toHaveCount(0);
 
   // Group conversation goes through the group API.
-  await page.getByPlaceholder('Write a group message').fill('Hello neighbours!');
+  await page.getByPlaceholder('Write a message').fill('Hello neighbours!');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText('Hello neighbours!')).toBeVisible();
 
-  // The proposed roster is shown before anyone consents.
+  // The roster is chosen from cmsg-supplied handles, never typed raw ids.
+  await expect(page.getByLabel('Target group')).not.toBeVisible();
+  await page.getByLabel('Fork kind').selectOption('merge');
+  await expect(page.getByLabel('Target group')).toBeVisible();
+  await expect(page.getByLabel('Target group')).toContainText('Evening choir');
   await page.getByLabel('Fork kind').selectOption('split');
+  await expect(page.getByLabel('Target group')).not.toBeVisible();
+
+  // The chosen roster is shown by handle before anyone consents.
   await page.getByLabel('Fork name').fill('Quiet half');
   await page.getByLabel('What this fork is about').fill('A smaller circle for slow weekends.');
-  await page.getByLabel(/Proposed roster/).fill('member-ana, member-tom');
-  await expect(page.getByText(/Roster preview/)).toBeVisible();
+  await page.getByLabel('ana-walks').check();
+  await page.getByLabel('tom-cooks').check();
+  await expect(page.getByText(/Chosen roster/)).toBeVisible();
+  await expect(page.getByText(/ana-walks, tom-cooks/)).toBeVisible();
   await page.getByRole('button', { name: 'Propose fork' }).click();
   await expect(page.getByText(/Proposal recorded/)).toBeVisible();
   await expect(page.getByText(/Nobody has moved/)).toBeVisible();
   await expect(page.getByText('Quiet half')).toBeVisible();
-  await expect(page.getByText(/member-ana, member-tom/)).toBeVisible();
 
   // Consent is explicit; nonmovers keep the original group.
   await page.getByRole('button', { name: 'Consent to this fork' }).click();
+  await expect(page.getByText(/Consent recorded in/)).toBeVisible();
   await expect(page.getByText(/Nonmovers keep the original group/)).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Community garden' })).toBeVisible();
 
-  // Suggestions dismiss cleanly on the opening room; welcoming needs membership first.
+  // Suggestions dismiss cleanly on the opening room; the welcome prompt stays visible.
   await page.goto('/#/groups/group-opening');
   await expect(page.getByRole('heading', { name: 'Newcomers opening' })).toBeVisible();
   await expect(page.getByText(/Welcome! Say hello/)).toBeVisible();
