@@ -4,6 +4,7 @@
   import type {
     CmsgClient,
     Contact,
+    CreditReceipt,
     GroupForkProposal,
     GroupView,
   } from '../../../../core/src/cmsg.js';
@@ -27,6 +28,10 @@
   let consenting: string | null = $state(null);
   let welcoming = $state(false);
   let dismissing = $state(false);
+  let introducing = $state(false);
+  let creditNote: CreditReceipt | null = $state(null);
+  let introA = $state('');
+  let introB = $state('');
   let draft = $state('');
   let forkNote = $state('');
   let welcomeNote = $state('');
@@ -58,7 +63,7 @@
   // One mutation at a time: a second action while any runs is ignored, and all
   // controls below render this lock through their disabled state.
   const anyBusy = $derived(
-    sending || proposing || consenting !== null || welcoming || dismissing,
+    sending || proposing || consenting !== null || welcoming || dismissing || introducing,
   );
 
   function handleFor(memberId: string): string {
@@ -131,6 +136,9 @@
     loadError = '';
     forkNote = '';
     welcomeNote = '';
+    creditNote = null;
+    introA = '';
+    introB = '';
     group = null;
     allGroups = [];
     contactList = [];
@@ -144,6 +152,7 @@
     consenting = null;
     welcoming = false;
     dismissing = false;
+    introducing = false;
     loading = true;
     void load(target, token, seen);
   });
@@ -166,7 +175,7 @@
         group = null;
         loading = false;
         loadError = s.unavailable;
-        sending = proposing = welcoming = dismissing = false;
+        sending = proposing = welcoming = dismissing = introducing = false;
         consenting = null;
       }
     });
@@ -271,14 +280,40 @@
     welcoming = true;
     error = '';
     welcomeNote = '';
+    creditNote = null;
     try {
-      const reply = await client.welcomeMember(target);
+      const result = await client.welcomeMember(target);
       if (!routeLive(token, target)) return;
-      welcomeNote = reply;
+      welcomeNote = result.reply;
+      creditNote = result.credit;
     } catch (e) {
       if (routeLive(token, target)) error = e instanceof Error ? e.message : s.welcomeFailed;
     } finally {
       if (routeLive(token, target)) welcoming = false;
+    }
+  }
+
+  async function introduce() {
+    const target = id;
+    const token = generation;
+    if (anyBusy || !group) return;
+    if (!introA || !introB) {
+      error = s.introduceChoose;
+      return;
+    }
+    introducing = true;
+    error = '';
+    creditNote = null;
+    try {
+      const receipt = await client.introduceMembers(target, introA, introB);
+      if (!routeLive(token, target)) return;
+      creditNote = receipt;
+      introA = '';
+      introB = '';
+    } catch (e) {
+      if (routeLive(token, target)) error = e instanceof Error ? e.message : s.introduceFailed;
+    } finally {
+      if (routeLive(token, target)) introducing = false;
     }
   }
 
@@ -353,6 +388,30 @@
         </Button>
       </div>
       {#if welcomeNote}<Notice tone="info">{s.welcomeReplyLabel}: {welcomeNote}</Notice>{/if}
+    {/if}
+
+    {#if group.joined && (group.members?.length ?? 0) >= 2}
+      <h2>{s.introduceTitle}</h2>
+      <p>{s.introduceLead}</p>
+      <form class="introduce" onsubmit={(e) => { e.preventDefault(); void introduce(); }}>
+        <label for="introduce-a">{s.introduceFirst}</label>
+        <select id="introduce-a" bind:value={introA} disabled={anyBusy}>
+          <option value="">{s.introduceNone}</option>
+          {#each group.members ?? [] as member (member.id)}<option value={member.id}>{handleFor(member.id)}</option>{/each}
+        </select>
+        <label for="introduce-b">{s.introduceSecond}</label>
+        <select id="introduce-b" bind:value={introB} disabled={anyBusy}>
+          <option value="">{s.introduceNone}</option>
+          {#each group.members ?? [] as member (member.id)}<option value={member.id}>{handleFor(member.id)}</option>{/each}
+        </select>
+        <Button type="submit" disabled={anyBusy} busy={introducing} busyLabel={s.introduceBusy}>{s.introduceAction}</Button>
+      </form>
+    {/if}
+    {#if creditNote}
+      <Notice tone={creditNote.status === 'failed' ? 'warning' : 'info'}>
+        <strong>{s.creditStatus[creditNote.status]}.</strong> {creditNote.explanation}
+        {#if creditNote.valueLabel} {s.creditValueLabel}: {creditNote.valueLabel}{/if}
+      </Notice>
     {/if}
 
     {#if group.joined}

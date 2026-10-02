@@ -219,3 +219,13 @@ eligibility or assigns a placeholder. When an admin requires a change, the
 member chooses the new handle; otherwise cmsg assigns a neutral placeholder.
 Community display names are optional, come from a schema field flagged
 "shown as name", and are always displayed together with the handle.
+
+### Group levels, welcome and introduction credit
+
+Group levels, "what changes next" text, consent forks and opening progress are
+cmsg projections; the frontend never derives a level from a size. Welcoming and
+introducing return a credit receipt (pending, credited, capped or failed) with an
+explanation and an optional value. Amounts, caps and the answer window are backend
+policy: the frontend renders receipts verbatim and never claims credit before one
+arrives. Introducing never costs the introducer a wave; the introduced pair still
+send their own first-contact wave. Joining or forking never costs a wave.
