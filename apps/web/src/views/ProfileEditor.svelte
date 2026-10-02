@@ -3,6 +3,7 @@
   import type { CmsgClient, LocationValue, MatchRule, ProfileSchema, ProfileValues } from '../../../../core/src/cmsg.js';
   import { Button, TextField, Notice, ProfilePreview } from '../../../../ui/src/index.js';
   import { profileStrings } from '../strings/profile.js';
+  import { handleStrings } from '../strings/handles.js';
 
   interface Props {
     client: CmsgClient;
@@ -136,7 +137,8 @@
     return '';
   }
 
-  function visibilityHelp(field: { visibility: 'public' | 'private' }): string {
+  function visibilityHelp(field: { visibility: 'public' | 'private'; shownAsName?: boolean }): string {
+    if (field.shownAsName) return handleStrings.shownAsNameHelp;
     return field.visibility === 'private' ? profileStrings.privateHelp : profileStrings.publicHelp;
   }
 

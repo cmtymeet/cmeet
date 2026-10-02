@@ -208,3 +208,14 @@ chooses within seven days; otherwise the backend assigns a neutral placeholder.
 The admin never chooses a replacement handle. The frontend currently exercises
 these surfaces through its provisional typed port and development fixtures;
 production remains unavailable pending the real browser runtime.
+
+### Handles and display names
+
+Handle eligibility is decided by cmsg: free changes during the first seven days
+after admission, locked afterwards unless the community allows a change token,
+and a released handle stays reserved for two years. The frontend renders the
+cmsg-supplied policy (state, deadline, private reason) and never computes
+eligibility or assigns a placeholder. When an admin requires a change, the
+member chooses the new handle; otherwise cmsg assigns a neutral placeholder.
+Community display names are optional, come from a schema field flagged
+"shown as name", and are always displayed together with the handle.
