@@ -19,7 +19,7 @@ test('punishment requires confirmation, restores focus on cancel and blocks afte
 
 test('public cards give relative context only after the supplied record is available', async ({page}) => {
   await enterCommunity(page);
-  await page.getByRole('link', {name: 'Forum', exact: true}).click();
+  await page.getByRole('link', {name: 'Discover', exact: true}).click();
   await expect(page.getByRole('region', {name: 'Introduction outcomes'}).first()).toBeVisible();
   await expect(page.getByText('Shares of introduction outcomes', {exact: false}).first()).toBeVisible();
 });
