@@ -26,9 +26,9 @@
   <div class="actions">
     <button class="btn primary" disabled={disabled || wave.state !== 'pending' || wave.releaseState !== 'released'} onclick={() => onanswer?.(wave.id)}>{answerLabel}</button>
     <button class="btn" disabled={disabled || wave.state !== 'pending' || wave.releaseState !== 'released'} onclick={() => onclose?.(wave.id)}>{closeLabel}</button>
-    <button class="btn danger" disabled={disabled || wave.state !== 'pending' || wave.releaseState !== 'released'} onclick={() => onpunish?.(wave.id)}>{punishLabel}</button>
+    {#if onpunish}<button class="btn danger" disabled={disabled || wave.state !== 'pending' || wave.releaseState !== 'released'} onclick={() => onpunish?.(wave.id)}>{punishLabel}</button>{/if}
   </div>
-  <p class="note">{punishNote}</p>
+  {#if onpunish}<p class="note">{punishNote}</p>{/if}
   {#if wave.state !== 'pending'}<p class="state">Status: {wave.state}</p>{/if}
 </article>
 
