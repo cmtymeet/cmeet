@@ -20,13 +20,15 @@
 
 <article class="wave" aria-label={`First contact from ${wave.fromHandle}`}>
   <h3>First contact from {wave.fromHandle}</h3>
-  <p class="message">{wave.message}</p>
+  {#if wave.releaseState === 'released'}<p class="message">{wave.message}</p>
+  {:else}<p role="status">Waiting for release. The first message is not available yet.</p>{/if}
+  {#if wave.reason}<p>{wave.reason}</p>{/if}
   <div class="actions">
-    <button class="btn primary" disabled={disabled || wave.state !== 'pending'} onclick={() => onanswer?.(wave.id)}>{answerLabel}</button>
-    <button class="btn" disabled={disabled || wave.state !== 'pending'} onclick={() => onclose?.(wave.id)}>{closeLabel}</button>
-    <button class="btn danger" disabled={disabled || wave.state !== 'pending'} onclick={() => onpunish?.(wave.id)}>{punishLabel}</button>
+    <button class="btn primary" disabled={disabled || wave.state !== 'pending' || wave.releaseState !== 'released'} onclick={() => onanswer?.(wave.id)}>{answerLabel}</button>
+    <button class="btn" disabled={disabled || wave.state !== 'pending' || wave.releaseState !== 'released'} onclick={() => onclose?.(wave.id)}>{closeLabel}</button>
+    {#if onpunish}<button class="btn danger" disabled={disabled || wave.state !== 'pending' || wave.releaseState !== 'released'} onclick={() => onpunish?.(wave.id)}>{punishLabel}</button>{/if}
   </div>
-  <p class="note">{punishNote}</p>
+  {#if onpunish}<p class="note">{punishNote}</p>{/if}
   {#if wave.state !== 'pending'}<p class="state">Status: {wave.state}</p>{/if}
 </article>
 
