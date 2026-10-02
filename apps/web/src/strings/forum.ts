@@ -22,7 +22,7 @@ export const forumStrings = {
   checkingKey: 'Checking…',
   keyAccepted: 'Key accepted. You shared your key first, so they can look back at you.',
   keyRejectedPrefix: 'Not a match on:',
-  keyRejectedSuffix: 'They never see your rules or values.',
+  keyRejectedSuffix: 'Your matching rules stay private.',
   keyFailed: 'The key request did not work.',
   discoveryFailed: 'Discovery is unavailable right now.',
   exchangesTitle: 'Private profile exchanges',

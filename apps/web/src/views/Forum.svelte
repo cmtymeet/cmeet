@@ -9,7 +9,6 @@
     ProfileExchange,
     ProfileSchema,
     PublicCard,
-    Wave,
   } from '../../../../core/src/cmsg.js';
   import {
     Button,
@@ -41,7 +40,6 @@
   let keyResults: Record<string, KeyRequestResult> = $state({});
   let selectedPeer: string | null = $state(null);
   let waveDrafts: Record<string, string> = $state({});
-  let waveOutcomes: Record<string, Wave> = $state({});
   let waveBusy: Record<string, boolean> = $state({});
 
   let errorRef: HTMLDivElement | null = $state(null);
@@ -137,7 +135,6 @@
   /** Clear per-peer result actions that a replacement search would leave stale. */
   function clearStaleResults() {
     keyResults = {};
-    waveOutcomes = {};
     selectedPeer = null;
     exchangeNote = '';
     waveNote = '';
@@ -148,9 +145,24 @@
     error = '';
     if (reset) {
       clearStaleResults();
+      entries = [];
+      cursor = null;
       loading = true;
     } else {
       loadingMore = true;
+    }
+    if (!schema) {
+      try {
+        const nextSchema = await client.schema();
+        if (!alive || gen !== requestGen) return;
+        schema = nextSchema;
+      } catch (e) {
+        if (!alive || gen !== requestGen) return;
+        error = e instanceof Error ? e.message : s.discoveryFailed;
+        loading = false;
+        loadingMore = false;
+        return;
+      }
     }
     const snapshot = $state.snapshot(filters) as DiscoveryFilter[];
     const at = reset ? null : cursor;
@@ -197,6 +209,10 @@
       // Invalidate outstanding searches first: an older page resolving later
       // must not resurrect members this reset/delta already removed.
       requestGen += 1;
+      // The event carries a fresh view, so no page is stuck loading.
+      loading = false;
+      loadingMore = false;
+      error = '';
       if (event.reset) {
         clearStaleResults();
         entries = event.page.entries;
@@ -222,25 +238,25 @@
 
   async function requestKey(memberId: string) {
     if (keyBusy[memberId]) return;
+    const gen = requestGen;
     keyBusy = { ...keyBusy, [memberId]: true };
     exchangeNote = '';
     error = '';
     try {
       const result = await client.requestPrivateKey(memberId);
-      if (!alive) return;
+      if (!alive || gen !== requestGen) return;
       keyResults = { ...keyResults, [memberId]: result };
       await reloadExchanges();
-      if (!alive) return;
+      if (!alive || gen !== requestGen) return;
       if (result.status === 'accepted') {
         exchangeNote = s.keyAccepted;
       } else {
         exchangeNote = `${s.keyRejectedPrefix} ${result.failingField ?? s.failingFieldLabel}. ${s.keyRejectedSuffix}`;
       }
     } catch (e) {
-      if (!alive) return;
+      if (!alive || gen !== requestGen) return;
       error = e instanceof Error ? e.message : s.keyFailed;
     } finally {
-      if (!alive) return;
       keyBusy = { ...keyBusy, [memberId]: false };
     }
   }
@@ -257,20 +273,19 @@
       waveNote = s.waveEmpty;
       return;
     }
+    const gen = requestGen;
     waveBusy = { ...waveBusy, [memberId]: true };
     waveNote = '';
     error = '';
     try {
       const wave = await client.sendWave(memberId, message);
-      if (!alive) return;
-      waveOutcomes = { ...waveOutcomes, [memberId]: wave };
+      if (!alive || gen !== requestGen) return;
       waveDrafts = { ...waveDrafts, [memberId]: '' };
       waveNote = `${s.waveSentPrefix} ${wave.state}. ${wave.reason ?? ''}`.trim();
     } catch (e) {
-      if (!alive) return;
+      if (!alive || gen !== requestGen) return;
       waveNote = e instanceof Error ? e.message : s.waveFailed;
     } finally {
-      if (!alive) return;
       waveBusy = { ...waveBusy, [memberId]: false };
     }
   }
@@ -374,7 +389,7 @@
 
   {#if loading && entries.length === 0}
     <p aria-live="polite">{s.loading}</p>
-  {:else if entries.length === 0}
+  {:else if entries.length === 0 && !error}
     <EmptyState title={s.empty} hint={s.emptyHint} />
   {:else}
     <div class="grid">
@@ -383,6 +398,7 @@
           <Card
             card={entry}
             actionLabel={s.wantToKnowMore}
+            disabled={!!keyBusy[entry.memberId]}
             onaction={(id) => void requestKey(id)}
           />
           {#if keyBusy[entry.memberId]}
@@ -423,10 +439,6 @@
                 {s.waveSend}
               </Button>
             </div>
-            {#if waveOutcomes[entry.memberId]}
-              {@const outcome = waveOutcomes[entry.memberId]!}
-              <p class="muted">{s.waveSentPrefix} {outcome.state}. {outcome.reason ?? ''}</p>
-            {/if}
           {/if}
         </div>
       {/each}

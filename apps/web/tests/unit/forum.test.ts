@@ -257,6 +257,45 @@ describe('forum discovery', () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(target.textContent).toMatch(/ana-walks/);
       expect(target.textContent).not.toMatch(/tom-cooks/);
+      // The interrupted page is not stuck loading: controls stay usable.
+      expect(target.textContent).not.toMatch(/Loading…/);
+      expect(target.querySelector('#filter-neighbourhood')).not.toBeNull();
+      expect(target.querySelector('[role="alert"]')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('ignores a late key response after a filter reset without resurfacing the preview', async () => {
+    const client = await admitted();
+    const { target, cleanup } = render(client);
+    try {
+      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      // The key request takes 200ms in the fixture; reset the filters at once.
+      buttonByName(target, 'Want to know more')!.click();
+      await fill(target, 'filter-neighbourhood', 'East');
+      await vi.waitFor(() => expect(target.textContent).toMatch(/tom-cooks/));
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      // The stale acceptance must not resurface a preview or note afterwards.
+      expect(target.textContent).not.toMatch(/Front: public profile/);
+      expect(target.textContent).not.toMatch(/Key accepted/);
+      expect(target.textContent).not.toMatch(/Checking…/);
+      expect(target.textContent).toMatch(/tom-cooks/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('disables the card action while its key request is pending', async () => {
+    const client = await admitted();
+    const { target, cleanup } = render(client);
+    try {
+      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      buttonByName(target, 'Want to know more')!.click();
+      await tick();
+      expect(buttonByName(target, 'Want to know more')?.disabled).toBe(true);
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Key accepted/));
+      expect(buttonByName(target, 'Want to know more')?.disabled).toBe(false);
     } finally {
       cleanup();
     }
@@ -352,7 +391,7 @@ describe('forum discovery', () => {
       await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
       buttonByName(target, 'Want to know more')!.click();
       await vi.waitFor(() => expect(target.textContent).toMatch(/Not a match on:/));
-      expect(target.textContent).toMatch(/They never see your rules/);
+      expect(target.textContent).toMatch(/Your matching rules stay private/);
       expect(target.textContent).not.toMatch(/raw key/i);
     } finally {
       cleanup();

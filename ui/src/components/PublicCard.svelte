@@ -3,9 +3,10 @@
   interface Props {
     card: PublicCard;
     actionLabel?: string;
+    disabled?: boolean;
     onaction?: (memberId: string) => void;
   }
-  let { card, actionLabel = 'Want to know more', onaction }: Props = $props();
+  let { card, actionLabel = 'Want to know more', disabled = false, onaction }: Props = $props();
 
   function describeValues(): string {
     return Object.entries(card.values)
@@ -26,7 +27,7 @@
   {#if card.record}
     <p class="record">Welcomed by {Math.round(card.record.accepted * 100)}% of first contacts</p>
   {/if}
-  <button class="btn" onclick={() => onaction?.(card.memberId)}>{actionLabel}</button>
+  <button class="btn" {disabled} onclick={() => onaction?.(card.memberId)}>{actionLabel}</button>
 </article>
 
 <style>
