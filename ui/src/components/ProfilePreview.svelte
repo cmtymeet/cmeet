@@ -1,28 +1,43 @@
 <script lang="ts">
+  import { memberName } from '../member-name.js';
   // Flashcard preview: public front, private back. No pictures by decision.
+  import SegmentedControl from './SegmentedControl.svelte';
   import type { ProfileSchema, ProfileValues } from '../../../core/src/cmsg.js';
   interface Props {
     schema: ProfileSchema;
     values: ProfileValues;
+    handle?: string;
     frontLabel?: string;
     backLabel?: string;
   }
-  let { schema, values, frontLabel = 'Front: public profile', backLabel = 'Back: private profile' }: Props = $props();
+  let { schema, values, handle, frontLabel = 'Front: public profile', backLabel = 'Back: private profile' }: Props = $props();
   let side: 'front' | 'back' = $state('front');
 
   const publicFields = $derived(schema.fields.filter((f) => f.visibility === 'public'));
   const privateFields = $derived(schema.fields.filter((f) => f.visibility === 'private'));
 
-  function show(value: unknown): string {
+  const nameField = $derived(publicFields.find((field) => field.shownAsName));
+  const nameValue = $derived(nameField ? values[nameField.key] : undefined);
+
+  function show(value: ProfileValues[string] | undefined): string {
     if (value === undefined || value === '') return '—';
-    return String(value);
+    return typeof value === 'object' ? `${value.latitude}, ${value.longitude}` : String(value);
   }
 </script>
 
 <div class="flashcard">
-  <div class="segmented" role="tablist" aria-label="Profile preview side">
-    <button role="tab" aria-selected={side === 'front'} class:active={side === 'front'} onclick={() => (side = 'front')}>{frontLabel}</button>
-    <button role="tab" aria-selected={side === 'back'} class:active={side === 'back'} onclick={() => (side = 'back')}>{backLabel}</button>
+  {#if handle}<p class="identity">{memberName(handle, typeof nameValue === 'string' ? nameValue : undefined)}</p>{/if}
+  <div class="tabs">
+    <SegmentedControl
+      label="Profile preview side"
+      options={[
+        { value: 'front' as const, label: frontLabel },
+        { value: 'back' as const, label: backLabel },
+      ]}
+      current={side}
+      onselect={(value) => (side = value)}
+    />
+
   </div>
   {#if side === 'front'}
     <section aria-label={frontLabel}>
@@ -46,10 +61,7 @@
 
 <style>
   .flashcard { border: 1px solid var(--cmeet-line); border-radius: var(--cmeet-radius); padding: 1rem; background: var(--cmeet-surface); }
-  .segmented { display: inline-flex; border: 1px solid var(--cmeet-line); border-radius: 999px; overflow: hidden; margin-bottom: 0.75rem; }
-  .segmented button { font: inherit; border: 0; background: transparent; color: var(--cmeet-ink); padding: 0.45rem 0.9rem; cursor: pointer; }
-  .segmented button.active { background: var(--cmeet-accent); color: var(--cmeet-accent-ink); }
-  .segmented button:focus-visible { outline: 3px solid var(--cmeet-focus); outline-offset: -3px; }
+  .tabs { margin-bottom: 0.75rem; }
   dl { display: grid; gap: 0.6rem; margin: 0; }
   dt { font-size: 0.85rem; color: var(--cmeet-muted); }
   dd { margin: 0; font-weight: 600; }

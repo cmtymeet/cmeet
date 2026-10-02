@@ -712,7 +712,7 @@ export function createDevCmsg(options: DevAdapterOptions = {}): CmsgClient {
     async publishProfile(values: ProfileValues) {
       failIf('publishProfile');
       const issues = await this.validateProfile(values);
-      if (issues.length > 0) throw new Error(issues[0]?.message ?? 'The profile is not complete yet.');
+      if (issues.length > 0) throw new Error(issues[0]!.message);
       await delay(150);
       profile = { values: structuredClone(values), revision: profile.revision + 1, published: true };
       admitted = gateState === 'complete';

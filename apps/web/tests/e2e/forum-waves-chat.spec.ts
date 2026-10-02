@@ -23,13 +23,16 @@ test('forum, waves and one-to-one chat', async ({ page }) => {
 
   await page.getByRole('link', { name: 'Discover' }).click();
   await expect(page.getByRole('heading', { name: 'Discover' })).toBeVisible();
-  await expect(page.getByText('ana-walks')).toBeVisible();
+  const ana = page.getByRole('article', { name: 'Public profile of ana-walks' });
+  const tom = page.getByRole('article', { name: 'Public profile of tom-cooks' });
+  await expect(ana).toBeVisible();
 
   // Two-way filters on real values narrow the list.
   await page.getByLabel('Which neighbourhood do you live in?').selectOption('East');
-  await expect(page.getByText('tom-cooks')).toBeVisible();
-  await expect(page.getByText('ana-walks')).not.toBeVisible();
+  await expect(tom).toBeVisible();
+  await expect(ana).toHaveCount(0);
   await page.getByLabel('Which neighbourhood do you live in?').selectOption('');
+  await expect(ana).toBeVisible();
 
   // Key release is automatic by rules; look-back is explained.
   await page.getByRole('button', { name: 'Want to know more' }).first().click();
@@ -45,7 +48,7 @@ test('forum, waves and one-to-one chat', async ({ page }) => {
   // Contacts show the established relation; chat carries the thread.
   await page.getByRole('link', { name: 'Contacts' }).click();
   await expect(page.getByText('tom-cooks')).toBeVisible();
-  await page.getByRole('button', { name: 'Open chat' }).first().click();
+  await page.getByRole('listitem').filter({ hasText: 'tom-cooks' }).getByRole('button', { name: 'Open chat' }).click();
   await expect(page.getByLabel('Write a message')).toBeVisible();
   await page.getByLabel('Write a message').fill('See you on Saturday?');
   await page.getByRole('button', { name: 'Send', exact: true }).click();

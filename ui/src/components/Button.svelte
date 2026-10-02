@@ -13,12 +13,12 @@
 
 <button
   {type}
-  class="btn btn-{variant}"
+  class={`btn btn-${variant}`}
   disabled={disabled || busy}
   aria-busy={busy || undefined}
   {onclick}
 >
-  {#if busy}<span class="spinner" aria-hidden="true"></span> {busyLabel}{:else}{@render children?.()}{/if}
+  {#if busy}<span class="spinner" aria-hidden="true"></span>{busyLabel}{:else}{@render children?.()}{/if}
 </button>
 
 <style>

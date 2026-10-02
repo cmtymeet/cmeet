@@ -20,6 +20,8 @@ export const adminSchemaStrings = {
   minLabel: 'Minimum value',
   maxLabel: 'Maximum value',
   boundsHelp: 'Only for number questions. Leave empty for no bound.',
+  shownAsName: 'Shown as name',
+  nameHelp: 'A display name is always shown with the member handle. The community checks the name when saved.',
   requiredLabel: 'Required',
   filterableLabel: 'Usable as a filter',
   removeLabel: 'Remove question',

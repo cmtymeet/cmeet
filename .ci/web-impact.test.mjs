@@ -5,7 +5,7 @@ import { classifyChangedFiles, revisionRange, decodePaths } from './web-impact.m
 
 const a = 'a'.repeat(40), b = 'b'.repeat(40);
 test('frontend and shared source changes select frontend validation', () => {
-  for (const file of ['apps/web/src/App.svelte', 'apps/web/package-lock.json', 'ui/src/index.ts', 'core/src/cmsg.ts', '.ci/assert-asset-closure.mjs']) {
+  for (const file of ['apps/web/src/App.svelte', 'apps/web/package-lock.json', 'ui/src/index.ts', 'core/src/cmsg.ts', '.ci/assert-asset-closure.mjs', '.ci/assert-web-coverage.mjs']) {
     assert.deepEqual(classifyChangedFiles([file]), {web:true,cli:false});
   }
 });

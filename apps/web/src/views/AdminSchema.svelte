@@ -61,7 +61,12 @@
 
   function patch(key: string, patch: Partial<SchemaField>) {
     if (!schema) return;
-    schema = { ...schema, fields: schema.fields.map((f) => (f.key === key ? { ...f, ...patch } : f)) };
+    schema = { ...schema, fields: schema.fields.map((field) => {
+      if (field.key !== key) return field;
+      const next = { ...field, ...patch };
+      if (next.visibility !== 'public' || !['short-text', 'long-text'].includes(next.kind)) next.shownAsName = false;
+      return next;
+    }) };
     impact = '';
   }
 
@@ -89,6 +94,7 @@
       visibility: 'private',
       required: false,
       filterable: false,
+      shownAsName: false,
     };
     schema = { ...schema, fields: [...schema.fields, field] };
     impact = '';
@@ -199,6 +205,8 @@
           {#each schema.fields as field, i (field.key)}
             <li class="schema-item" aria-label={`Question ${i + 1}: ${field.question}`}>
               <div
+                role="group"
+                aria-label="Question order"
                 class="schema-row"
                 class:dragging={dragging === field.key}
                 draggable="true"
@@ -263,6 +271,14 @@
                   />
                 </div>
               {/if}
+              {#if field.visibility === 'public' && (field.kind === 'short-text' || field.kind === 'long-text')}
+                <label class="check" for="name-{field.key}">
+                  <input id="name-{field.key}" type="checkbox" checked={field.shownAsName === true}
+                    onchange={(event) => patch(field.key, { shownAsName: event.currentTarget.checked })} />
+                  {s.shownAsName}
+                </label>
+                <p class="muted">{s.nameHelp}</p>
+              {/if}
               <div class="check-row">
                 <label class="check" for="required-{field.key}">
                   <input
@@ -297,7 +313,7 @@
       </fieldset>
       <div class="admin-preview">
         <h2>{s.preview}</h2>
-        <div class="preview-card"><ProfilePreview {schema} values={sampleValues} frontLabel={s.frontLabel} backLabel={s.backLabel} /></div>
+        <div class="preview-card"><ProfilePreview handle="sample-member" {schema} values={sampleValues} frontLabel={s.frontLabel} backLabel={s.backLabel} /></div>
         <h3>{s.sampleHeading}</h3>
         <p class="muted">{s.sampleHelp}</p>
         {#each schema.fields as field (field.key)}

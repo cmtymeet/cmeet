@@ -8,7 +8,7 @@
   const alert = $derived(tone === 'error' || tone === 'warning');
 </script>
 
-<div class="notice notice-{tone}" role={alert ? 'alert' : 'status'}>
+<div class={`notice notice-${tone}`} role={alert ? 'alert' : 'status'}>
   {#if title}<strong>{title}</strong>{/if}
   <div>{@render children?.()}</div>
 </div>

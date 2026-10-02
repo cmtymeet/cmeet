@@ -61,31 +61,52 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Typecheck
+        id: typecheck
         if: needs.web-impact.outputs.relevant == 'true'
         run: npm run typecheck
 
       - name: Unit and component tests
         if: needs.web-impact.outputs.relevant == 'true'
-        run: npm run test:unit
+        run: |
+          npm run test:unit -- --coverage
+          node ../../.ci/assert-web-coverage.mjs
+
+      - name: Upload web coverage reports
+        if: always() && needs.web-impact.outputs.relevant == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: web-coverage-reports
+          path: apps/web/coverage
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Build
-        if: needs.web-impact.outputs.relevant == 'true'
+        id: build
+        # Collect browser evidence even when the strict unit/coverage gate
+        # fails. That failure still fails this required job.
+        if: ${{ !cancelled() && steps.typecheck.outcome == 'success' }}
         run: npm run build
 
       - name: Verify generated browser asset closure
-        if: needs.web-impact.outputs.relevant == 'true'
+        id: closure
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: node ../../.ci/assert-asset-closure.mjs dist
 
       - name: Install Playwright browser
-        if: needs.web-impact.outputs.relevant == 'true'
+        id: browser
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npx playwright install --with-deps chromium
 
       - name: UI fixture journeys (development server)
-        if: needs.web-impact.outputs.relevant == 'true'
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/development
         run: npm run test:e2e
 
       - name: Production excludes fixtures and refuses unavailable runtime
-        if: needs.web-impact.outputs.relevant == 'true'
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' && steps.closure.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/production
         run: npm run test:production
 
       - name: Upload Playwright report

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { memberName } from '../member-name.js';
   import type { Wave } from '../../../core/src/cmsg.js';
   interface Props {
     wave: Wave;
@@ -18,8 +19,8 @@
   }: Props = $props();
 </script>
 
-<article class="wave" aria-label={`First contact from ${wave.fromHandle}`}>
-  <h3>First contact from {wave.fromHandle}</h3>
+<article class="wave" aria-label={`First contact from ${memberName(wave.fromHandle, wave.fromDisplayName)}`}>
+  <h3>First contact from {memberName(wave.fromHandle, wave.fromDisplayName)}</h3>
   {#if wave.releaseState === 'released'}<p class="message">{wave.message}</p>
   {:else}<p role="status">Waiting for release. The first message is not available yet.</p>{/if}
   {#if wave.reason}<p>{wave.reason}</p>{/if}
@@ -29,7 +30,7 @@
     {#if onpunish}<button class="btn danger" disabled={disabled || wave.state !== 'pending' || wave.releaseState !== 'released'} onclick={() => onpunish?.(wave.id)}>{punishLabel}</button>{/if}
   </div>
   {#if onpunish}<p class="note">{punishNote}</p>{/if}
-  {#if wave.state !== 'pending'}<p class="state">Status: {wave.state}</p>{/if}
+  {#if wave.state !== 'pending'}<p class="state">{`Status: ${wave.state}`}</p>{/if}
 </article>
 
 <style>

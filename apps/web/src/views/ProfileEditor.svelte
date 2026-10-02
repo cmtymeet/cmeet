@@ -6,8 +6,9 @@
 
   interface Props {
     client: CmsgClient;
+    handle?: string;
   }
-  let { client }: Props = $props();
+  let { client, handle }: Props = $props();
 
   let schema: ProfileSchema | null = $state(null);
   let values: ProfileValues = $state({});
@@ -396,6 +397,7 @@
       <div>
         <h2>{profileStrings.previewTitle}</h2>
         <ProfilePreview
+          {handle}
           {schema}
           values={previewValues}
           frontLabel={profileStrings.previewFront}
