@@ -732,7 +732,7 @@ describe('PublicCard presence, values and suppressed reserved record', () => {
     handle: 'ana-walks',
     values: { age: 34, neighbourhood: 'North' },
     online: true,
-    record: { accepted: 0.7, declined: 0.25, punished: 0.05 },
+    record: { status: 'available', accepted: 0.7, declined: 0.25, punished: 0.05 },
   };
 
   it('announces the member, shows presence and lists public values', async () => {
@@ -760,18 +760,20 @@ describe('PublicCard presence, values and suppressed reserved record', () => {
     }
   });
 
-  it('suppresses the reserved record regardless of its value', async () => {
+  it('shows verified relative shares and withholds values before quorum', async () => {
     const withRecord = render(PublicCard, { card });
     try {
       await tick();
-      expect(withRecord.target.textContent).not.toMatch(/Welcomed by/);
+      expect(withRecord.target.textContent).toContain('70%');
+      expect(withRecord.target.textContent).toContain('25%');
+      expect(withRecord.target.textContent).toContain('5%');
     } finally {
       await withRecord.cleanup();
     }
     const beforeQuorum = render(PublicCard, { card: { ...card, record: null } });
     try {
       await tick();
-      expect(beforeQuorum.target.textContent).not.toMatch(/Welcomed by/);
+      expect(beforeQuorum.target.textContent).not.toContain('%');
     } finally {
       await beforeQuorum.cleanup();
     }

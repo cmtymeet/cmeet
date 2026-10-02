@@ -59,7 +59,7 @@ describe('introduction lifecycle and MVP controls', () => {
       [...target.querySelectorAll('button')].find(b => b.textContent === 'Check again')!.click();
       await vi.waitFor(() => expect(target.querySelector('textarea')).not.toBeNull());
       expect(target.querySelector('[role="alert"]')).toBeNull();
-      expect(target.textContent).not.toMatch(/punish/i);
+      expect(target.textContent).toContain('Punish');
     } finally { await unmount(view); await base.disconnect(); }
   });
   it('locks the reply and makes no follow-up read after teardown during an answer', async () => {

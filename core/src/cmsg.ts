@@ -169,6 +169,11 @@ export interface DiscoveryFilter {
   maxDistanceKm?: number;
 }
 
+/** Supplied only after cmsg verifies quorum and the current epoch proof. */
+export type PublicRecord =
+  | { status: 'withheld' }
+  | { status: 'available'; accepted: number; declined: number; punished: number };
+
 export interface PublicCard {
   memberId: MemberId;
   handle: Handle;
@@ -182,10 +187,10 @@ export interface PublicCard {
   values: ProfileValues;
   online: boolean;
   /**
-   * Reserved record port. The presentation layer never renders or computes
-   * this; UI must ignore it (even when non-null).
+   * cmsg owns quorum and epoch currentness. Values are relative shares, never
+   * counts. Null/withheld exposes no figures; the UI never verifies a proof.
    */
-  record: { accepted: number; declined: number; punished: number } | null;
+  record: PublicRecord | null;
 }
 
 export interface MatchPage {

@@ -25,6 +25,18 @@
     </div>
   </div>
   <p class="values">{describeValues()}</p>
+  <section class="record" aria-label="Introduction outcomes">
+    {#if card.record?.status === 'available'}
+      <dl>
+        <div><dt>Accepted</dt><dd>{new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 1 }).format(card.record.accepted)}</dd></div>
+        <div><dt>Declined</dt><dd>{new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 1 }).format(card.record.declined)}</dd></div>
+        <div><dt>Punished</dt><dd>{new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 1 }).format(card.record.punished)}</dd></div>
+      </dl>
+      <p>Shares of introduction outcomes, shown after enough responses and a current record check. These are context, not a rating of a person.</p>
+    {:else}
+      <p>Introduction outcomes are available only after enough responses and a current record check.</p>
+    {/if}
+  </section>
   <button class="btn" {disabled} onclick={() => onaction?.(card.memberId)}>{actionLabel}</button>
 </article>
 
@@ -39,6 +51,9 @@
   h3 { margin: 0; }
   .presence { margin: 0; color: var(--cmeet-muted); font-size: 0.9rem; }
   .values { margin: 0.6rem 0; }
+  .record { color: var(--cmeet-muted); font-size: 0.9rem; }
+  dl { display: flex; flex-wrap: wrap; gap: 1rem; }
+  dd { margin: 0; color: var(--cmeet-ink); }
   .btn {
     font: inherit; border-radius: var(--cmeet-radius); border: 1px solid var(--cmeet-line);
     padding: 0.55rem 0.9rem; background: var(--cmeet-surface); color: var(--cmeet-ink); cursor: pointer;

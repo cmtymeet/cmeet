@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { CmsgClient, Wave, WaveSlots } from '../../../../core/src/cmsg.js';
-  import { Button, TextField, Notice, EmptyState, WaveCard } from '../../../../ui/src/index.js';
+  import { Button, TextField, Notice, EmptyState, WaveCard, Dialog } from '../../../../ui/src/index.js';
   import { wavesStrings as s } from '../strings/waves.js';
 
   interface Props {
@@ -13,6 +13,7 @@
   let slots: WaveSlots | null = $state(null);
   let answers: Record<string, string> = $state({});
   let busy = $state(false);
+  let punishId: string | null = $state(null);
   let error = $state('');
   let loaded = $state(false);
   let generation = 0;
@@ -36,7 +37,7 @@
     return () => { alive = false; ++generation; stop(); };
   });
 
-  async function act(id: string, kind: 'answer' | 'close') {
+  async function act(id: string, kind: 'answer' | 'close' | 'punish') {
     if (busy) return;
     if (!alive) return;
     error = '';
@@ -49,10 +50,13 @@
           return;
         }
         await client.answerWave(id, message);
+      } else if (kind === 'punish') {
+        await client.punishWave(id);
       } else {
         await client.closeWave(id);
       }
       if (!alive) return;
+      punishId = null;
       answers = { ...answers, [id]: '' };
       await load();
     } catch (e) {
@@ -82,6 +86,7 @@
           disabled={busy}
           onanswer={(id) => void act(id, 'answer')}
           onclose={(id) => void act(id, 'close')}
+          onpunish={(id) => { if (!busy) punishId = id; }}
         />
         {#if wave.state === 'pending' && wave.releaseState === 'released'}
           <fieldset class="reply-field" disabled={busy}>
@@ -98,6 +103,15 @@
     {/each}
   </div>
   <div class="row"><Button {busy} onclick={() => void load()} disabled={busy}>{s.check}</Button></div>
+  <Dialog open={punishId !== null} labelledBy="punish-title" describedBy="punish-detail" onclose={() => { if (!busy) punishId = null; }}>
+    <h2 id="punish-title">{s.punishTitle}</h2>
+    <p id="punish-detail">{s.punishDetail}</p>
+    {#if error}<Notice tone="error">{error}</Notice>{/if}
+    <div class="row">
+      <Button disabled={busy} onclick={() => { punishId = null; }}>{s.cancel}</Button>
+      <Button variant="danger" {busy} disabled={busy} onclick={() => { if (punishId !== null) void act(punishId, 'punish'); }}>{s.confirmPunish}</Button>
+    </div>
+  </Dialog>
 </section>
 
 <style>
