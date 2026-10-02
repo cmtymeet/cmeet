@@ -4,7 +4,7 @@
     label: string;
   }
   let { value, label }: Props = $props();
-  const pct = Math.round(Math.min(1, Math.max(0, value)) * 100);
+  const pct = $derived(Math.round(Math.min(1, Math.max(0, value)) * 100));
 </script>
 
 <div class="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={label}>
