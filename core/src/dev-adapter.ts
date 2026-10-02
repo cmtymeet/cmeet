@@ -15,6 +15,8 @@
 import type {
   AdminAccess,
   HandleChangeNotice,
+  CreditReceipt,
+  CreditStatus,
   HandlePolicy,
   MemberRole,
   RootBoardAccess,
@@ -79,6 +81,8 @@ export interface DevAdapterOptions {
   handlePolicy?: HandlePolicy['state'];
   /** Fixture community display name shown together with the handle. */
   displayName?: string;
+  /** Fixture outcome for welcome and introduction credit. */
+  creditStatus?: CreditStatus;
 }
 
 interface SeedMember {
@@ -271,6 +275,25 @@ export function createDevCmsg(options: DevAdapterOptions = {}): CmsgClient {
     : undefined;
   let policyState: HandlePolicy['state'] = options.handlePolicy ?? 'settling-in';
   const releasedHandles = new Set<string>();
+  function creditReceipt(kind: CreditReceipt['kind']): CreditReceipt {
+    const status = options.creditStatus ?? 'pending';
+    const subject = kind === 'welcome' ? 'welcome' : 'introduction';
+    if (status === 'credited') {
+      return { kind, status, valueLabel: kind === 'welcome' ? '+0.25' : '+1', explanation: `Your ${subject} was confirmed and credited.` };
+    }
+    if (status === 'capped') {
+      return { kind, status, explanation: `Your ${subject} was recorded. The weekly credit limit is reached, so no further credit now.` };
+    }
+    if (status === 'failed') {
+      return { kind, status, explanation: `Credit for your ${subject} could not be confirmed. Nothing was charged. Try again later.` };
+    }
+    return {
+      kind, status,
+      explanation: kind === 'welcome'
+        ? 'Your welcome is recorded. Credit appears here once it is confirmed.'
+        : 'Introduced. Credit is confirmed only after both members have answered their first contact within the allowed window.',
+    };
+  }
   function currentPolicy(): HandlePolicy {
     const reservedNote = 'A handle you release stays reserved for two years.';
     if (handleChange) {
@@ -1140,7 +1163,18 @@ export function createDevCmsg(options: DevAdapterOptions = {}): CmsgClient {
       const group = groups.find((g) => g.id === groupId);
       if (!group) throw new Error('This group is not available.');
       if (!group.joined) throw new Error('Join the group before welcoming.');
-      return `Welcome to ${group.name}!`;
+      return { reply: `Welcome to ${group.name}!`, credit: creditReceipt('welcome') };
+    },
+
+    async introduceMembers(groupId: string, firstId: string, secondId: string) {
+      failIf('introduceMembers');
+      const group = groups.find((g) => g.id === groupId);
+      if (!group) throw new Error('This group is not available.');
+      if (!group.joined) throw new Error('Join the group before introducing members.');
+      if (firstId === secondId) throw new Error('Choose two different members.');
+      const known = new Set((group.members ?? []).map((member) => member.id));
+      if (!known.has(firstId) || !known.has(secondId)) throw new Error('Both members must belong to this group.');
+      return creditReceipt('introduction');
     },
 
     async dismissGroupSuggestion(groupId: string) {

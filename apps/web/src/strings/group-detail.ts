@@ -69,6 +69,18 @@ export const groupDetailStrings = {
   proposalRecorded:
     'Proposal recorded. Nobody has moved. Each mover still chooses whether to consent.',
   nonmoversNote: 'Nonmovers keep the original group.',
+  introduceTitle: 'Introduce two members',
+  introduceLead:
+    'Introducing is a kind gesture and never costs you a wave. The two members still send each other an ordinary first-contact wave. Credit for you appears only after cmsg confirms it.',
+  introduceFirst: 'First member',
+  introduceSecond: 'Second member',
+  introduceNone: 'Choose a member',
+  introduceAction: 'Introduce',
+  introduceBusy: 'Introducing…',
+  introduceChoose: 'Choose two members to introduce.',
+  introduceFailed: 'The introduction did not work.',
+  creditStatus: { pending: 'Credit pending', credited: 'Credited', capped: 'No credit this week', failed: 'Credit not confirmed' },
+  creditValueLabel: 'Credit',
   seatLabel: 'Seat budget',
   openingProgressLabel: 'Opening progress',
 } as const;

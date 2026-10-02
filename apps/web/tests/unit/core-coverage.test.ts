@@ -921,7 +921,7 @@ describe('core coverage: groups', () => {
   it('welcomes only after joining and dismisses suggestions', async () => {
     const client = createDevCmsg();
     await expect(client.welcomeMember('group-choir')).rejects.toThrow('before welcoming');
-    expect(await client.welcomeMember('group-garden')).toMatch(/Community garden/);
+    expect((await client.welcomeMember('group-garden')).reply).toMatch(/Community garden/);
     await client.dismissGroupSuggestion('group-choir');
     expect((await client.groups()).find((g) => g.id === 'group-choir')?.suggestion).toBeNull();
   });

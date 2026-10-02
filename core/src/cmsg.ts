@@ -340,6 +340,25 @@ export interface GroupView {
   forks?: ForkView[];
 }
 
+/**
+ * Credit for welcoming or introducing, reported by cmsg. Amounts, caps and
+ * time windows are backend policy; the UI renders status, explanation and value
+ * verbatim and never claims credit before a receipt says so.
+ */
+export type CreditStatus = 'pending' | 'credited' | 'capped' | 'failed';
+
+export interface CreditReceipt {
+  kind: 'welcome' | 'introduction';
+  status: CreditStatus;
+  explanation: string;
+  valueLabel?: string;
+}
+
+export interface WelcomeResult {
+  reply: string;
+  credit: CreditReceipt;
+}
+
 export interface GroupForkProposal {
   groupId: string;
   kind: 'exit' | 'split' | 'merge' | 'open' | 'add' | 'exclusion';
@@ -515,7 +534,8 @@ export interface CmsgClient {
   leaveGroup(id: string): Promise<void>;
   proposeFork(proposal: GroupForkProposal): Promise<GroupView>;
   consentFork(groupId: string, forkId: string): Promise<GroupView>;
-  welcomeMember(groupId: string): Promise<string>;
+  welcomeMember(groupId: string): Promise<WelcomeResult>;
+  introduceMembers(groupId: string, firstId: string, secondId: string): Promise<CreditReceipt>;
   dismissGroupSuggestion(groupId: string): Promise<void>;
   sendGroupMessage(id: string, text: string): Promise<ChatMessage>;
 
