@@ -21,6 +21,7 @@ export default defineConfig({
   preview: { host: '127.0.0.1', port: 4173 },
   test: {
     environment: 'jsdom',
+    setupFiles: ['tests/unit/platform.ts'],
     include: ['tests/unit/**/*.test.ts'],
     coverage: {
       provider: 'v8',

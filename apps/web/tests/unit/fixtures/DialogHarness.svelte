@@ -3,7 +3,7 @@
   // Owns `open` like a production parent: Dialog only requests close,
   // this harness decides. Exercises implicit snippet children, label
   // association and open -> closed -> open rerender with focus restore.
-  import Dialog from '../../../../ui/src/components/Dialog.svelte';
+  import Dialog from '../../../../../ui/src/components/Dialog.svelte';
 
   interface Props {
     labelledBy?: string;

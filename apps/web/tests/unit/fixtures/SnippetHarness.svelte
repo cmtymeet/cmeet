@@ -1,8 +1,8 @@
 <script lang="ts">
   // Snippet-children rerender harness: Button and Notice render live snippet
   // content. Bumping state must update the same DOM nodes in place.
-  import Button from '../../../../ui/src/components/Button.svelte';
-  import Notice from '../../../../ui/src/components/Notice.svelte';
+  import Button from '../../../../../ui/src/components/Button.svelte';
+  import Notice from '../../../../../ui/src/components/Notice.svelte';
 
   let count = $state(1);
 </script>

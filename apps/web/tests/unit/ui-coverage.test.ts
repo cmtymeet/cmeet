@@ -1,52 +1,6 @@
-/**
- * Behavior suite for every shared `ui/src` component.
- *
- * Mounts the actual Svelte components with real `mount`/`tick`/`unmount` and
- * feeds several of them with data from the actual development adapter
- * (`createDevCmsg`), never hand-mocked component logic. Adapter failure
- * injection (bad voucher rejection, `failConnect`, `failActions`,
- * unknown wave/group) is exercised at the adapter boundary only.
- *
- * Native-control notes (PR11 integrated on this branch; original PR11 branch
- * unchanged — do not touch Dialog, TextField or SegmentedControl sources):
- * - Dialog is a native `<dialog>` element. `open` drives `showModal()` /
- *   `close()` inside an effect; Escape arrives as a `cancel` event the parent
- *   may decline, and backdrop clicks are filtered by bounding-rectangle math.
- *   There is no `[role="dialog"]`, no `aria-modal` and no `.scrim` anymore:
- *   assertions below target the `dialog` element and its `.open` state.
- * - TextField stays one-way (`value` + `oninput` string payloads); required
- *   fields use native `required` plus the hidden asterisk.
- * - SegmentedControl is a `tablist` with roving `tabindex` and ArrowLeft /
- *   ArrowRight / Home / End handling; selection itself stays parent-controlled
- *   (one-way `current` + `onselect`).
- *
- * jsdom platform boundary: jsdom has no modal dialog engine, so this file
- * installs a minimal `HTMLDialogElement.showModal`/`close` polyfill (open
- * attribute reflection plus focus, mirroring what the browser does on
- * `showModal`). Real modal focus navigation, `:modal` styling, Escape
- * restore and backdrop geometry stay covered by the native browser suite in
- * `apps/web/tests/e2e/dialog-accessibility.spec.ts`.
- *
- * PORT-CONTRACT gaps pinned here (core worker owns the types; components
- * follow — asserted as current behavior, not invented):
- * - GroupCard renders name/size/description/whatChangesNext/suggestion and
- *   join/leave/open only. `band`, `opening`, `lineage`, `seatBudget`,
- *   `welcomePrompt`, `members` and `forks` are accepted by the type but have
- *   no branch in the component.
- * - WaveCard renders message/actions/status/note only and holds no
- *   `releaseState` branch; reserved fixtures carry `message: ''` from the
- *   adapter, so reserved content stays hidden by fixture construction.
- * - `en.groups.level` has no `opening` key while LevelBadge defaults
- *   `opening` to 'Opening room'; GroupCard `levelLabels` cannot rename it.
- * - Room join consent (`joinGroup(id, true)`) lives at the adapter boundary;
- *   GroupCard collects no consent itself.
- *
- * Coverage: v8 thresholds are 100/100/100/100 over
- * `../../ui/src/**` + `../../core/src/**` (see `vite.config.ts`). This file
- * alone does not reach that gate; the core suite lands separately and CI
- * measures the total. Production still refuses without a real browser `cmsg`
- * runtime. Every mount is followed by `tick` where effects run and every
- * unmount is awaited.
+/** Mounted shared-component behavior; browser tests qualify native focus/keyboard behavior.
+ * Real development adapter fixtures; platform-only jsdom shims in platform.ts.
+ * The complete combined suite is measured against strict UI/core coverage.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount, type Component } from 'svelte';
@@ -71,36 +25,6 @@ import DialogHarness from './fixtures/DialogHarness.svelte';
 import SegmentedHarness from './fixtures/SegmentedHarness.svelte';
 import SnippetHarness from './fixtures/SnippetHarness.svelte';
 
-// jsdom platform boundary (see header): minimal modal emulation so the
-// native-dialog effect under test can run. Browser truth stays in the
-// Playwright dialog-accessibility suite.
-if (typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent)) {
-  const proto = HTMLDialogElement.prototype as HTMLDialogElement & {
-    showModal: () => void;
-    close: () => void;
-  };
-  Object.defineProperty(proto, 'showModal', {
-    configurable: true,
-    writable: true,
-    value(this: HTMLDialogElement) {
-      // Browsers move focus into the modal on showModal; jsdom needs the
-      // nudge (and a tabindex to make a bare dialog focusable there).
-      if (!this.hasAttribute('tabindex')) this.setAttribute('tabindex', '-1');
-      this.setAttribute('open', '');
-      (this as unknown as { open: boolean }).open = true;
-      this.focus();
-    },
-  });
-  Object.defineProperty(proto, 'close', {
-    configurable: true,
-    writable: true,
-    value(this: HTMLDialogElement) {
-      (this as unknown as { open: boolean }).open = false;
-      this.removeAttribute('open');
-    },
-  });
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function render<P extends Record<string, unknown>>(view: Component<any>, props: P) {
   const target = document.createElement('div');
@@ -109,7 +33,7 @@ function render<P extends Record<string, unknown>>(view: Component<any>, props: 
   return {
     target,
     cleanup: async () => {
-      unmount(component);
+      await unmount(component);
       await tick();
       target.remove();
     },
@@ -247,7 +171,7 @@ describe('Button variants and busy/disabled behavior', () => {
     }
   });
 
-  it('is reachable and operable from the keyboard', async () => {
+  it('can receive focus and dispatch its click', async () => {
     const onclick = vi.fn();
     const { target, cleanup } = render(Button, { onclick, children: undefined });
     try {
@@ -337,7 +261,7 @@ describe('Dialog native open/close, labelling, focus and keyboard', () => {
     }
   });
 
-  it('requests close once per open cycle on cancel and ignores other keys', async () => {
+  it('retries close requests when the parent keeps the dialog open', async () => {
     const onclose = vi.fn();
     const { target, cleanup } = render(Dialog, { open: true, labelledBy: 'dlg-title', onclose, children: undefined });
     try {
@@ -347,7 +271,7 @@ describe('Dialog native open/close, labelling, focus and keyboard', () => {
       expect(onclose).not.toHaveBeenCalled();
       cancel(dialog);
       cancel(dialog);
-      expect(onclose).toHaveBeenCalledTimes(1);
+      expect(onclose).toHaveBeenCalledTimes(2);
     } finally {
       await cleanup();
     }
@@ -525,7 +449,7 @@ describe('LevelBadge plain level names', () => {
   it('uses caller-provided labels for white-label themes', async () => {
     const { target, cleanup } = render(LevelBadge, {
       level: 'room',
-      labels: { circle: 'C', ingroup: 'I', room: 'Open space' },
+      labels: { circle: 'C', ingroup: 'I', room: 'Open space', opening: 'Opening' },
     });
     try {
       await tick();
@@ -756,7 +680,7 @@ describe('ProgressBar calm progress values', () => {
   });
 });
 
-describe('PublicCard presence, values and welcoming record', () => {
+describe('PublicCard presence, values and suppressed reserved record', () => {
   const card = {
     memberId: 'member-ana',
     handle: 'ana-walks',
@@ -790,11 +714,11 @@ describe('PublicCard presence, values and welcoming record', () => {
     }
   });
 
-  it('shows the relative welcoming record only after quorum', async () => {
+  it('suppresses the reserved record regardless of its value', async () => {
     const withRecord = render(PublicCard, { card });
     try {
       await tick();
-      expect(withRecord.target.textContent).toMatch(/Welcomed by 70% of first contacts/);
+      expect(withRecord.target.textContent).not.toMatch(/Welcomed by/);
     } finally {
       await withRecord.cleanup();
     }
@@ -855,11 +779,7 @@ describe('PublicCard presence, values and welcoming record', () => {
         await tick();
         expect(target.querySelector('h3')!.textContent).toBe(entry.handle);
         expect(target.querySelector('article')!.getAttribute('aria-label')).toMatch(entry.handle);
-        if (entry.record) {
-          expect(target.textContent).toMatch(new RegExp(`Welcomed by ${Math.round(entry.record.accepted * 100)}%`));
-        } else {
-          expect(target.textContent).not.toMatch(/Welcomed by/);
-        }
+        expect(target.textContent).not.toMatch(/Welcomed by/);
       } finally {
         await cleanup();
       }
@@ -998,7 +918,7 @@ describe('SegmentedControl options, selection and keyboard', () => {
     }
   });
 
-  it('keeps every option reachable and operable from the keyboard', async () => {
+  it('lets each option receive programmatic focus and click', async () => {
     const onselect = vi.fn();
     const { target, cleanup } = render(SegmentedControl, {
       label: 'Profile preview side',
@@ -1271,6 +1191,7 @@ describe('TextField inputs, help, errors and choices', () => {
 describe('WaveCard first-contact actions and states', () => {
   const pending: Wave = {
     id: 'wave-1',
+    releaseState: 'released',
     from: 'member-tom',
     fromHandle: 'tom-cooks',
     to: 'me',
@@ -1293,14 +1214,14 @@ describe('WaveCard first-contact actions and states', () => {
     }
   });
 
-  it('uses the shared first-contact labels and note by default', async () => {
+  it('offers answer and close with no punishment by default', async () => {
     const { target, cleanup } = render(WaveCard, { wave: pending });
     try {
       await tick();
       expect(target.textContent).toMatch(en.waves.answer);
       expect(target.textContent).toMatch(en.waves.close);
-      expect(target.textContent).toMatch(en.waves.punish);
-      expect(target.querySelector('.note')!.textContent).toBe(en.waves.punishNote);
+      expect(target.textContent).not.toMatch(en.waves.punish);
+      expect(target.querySelector('.note')).toBeNull();
     } finally {
       await cleanup();
     }
@@ -1332,6 +1253,7 @@ describe('WaveCard first-contact actions and states', () => {
       closeLabel: 'Decline',
       punishLabel: 'Report',
       punishNote: 'Custom note.',
+      onpunish: vi.fn(),
     });
     try {
       await tick();
@@ -1383,15 +1305,16 @@ describe('WaveCard first-contact actions and states', () => {
     }
   });
 
-  it('hides reserved content because the fixture carries no message', async () => {
+  it('withholds reserved content even if the transport supplies text prematurely', async () => {
     const client = createDevCmsg({ incomingReleaseState: 'reserved' });
     const [incoming] = await client.incomingWaves();
     expect(incoming?.releaseState).toBe('reserved');
     expect(incoming?.message).toBe('');
-    const { target, cleanup } = render(WaveCard, { wave: incoming! });
+    const { target, cleanup } = render(WaveCard, { wave: { ...incoming!, message: 'WITHHELD' } });
     try {
       await tick();
-      expect(target.querySelector('.message')!.textContent).toBe('');
+      expect(target.querySelector('.message')).toBeNull();
+      expect(target.textContent).not.toContain('WITHHELD');
     } finally {
       await cleanup();
     }
@@ -1501,7 +1424,7 @@ describe('GroupCard levels, joining and suggestions', () => {
   it('uses custom level labels when provided', async () => {
     const { target, cleanup } = render(GroupCard, {
       group: circle,
-      levelLabels: { circle: 'Close circle', ingroup: 'Inner', room: 'Open' },
+      levelLabels: { circle: 'Close circle', ingroup: 'Inner', room: 'Open', opening: 'Opening' },
     });
     try {
       await tick();
@@ -1511,7 +1434,7 @@ describe('GroupCard levels, joining and suggestions', () => {
     }
   });
 
-  it('names an opening level while leaving band and opening details to the lead', async () => {
+  it('renders the supplied opening level, progress and band', async () => {
     const opening: GroupView = {
       ...room,
       id: 'group-opening',
@@ -1529,9 +1452,9 @@ describe('GroupCard levels, joining and suggestions', () => {
       expect(target.querySelector('article')!.getAttribute('aria-label')).toBe('Newcomers opening, 28 members');
       expect(target.textContent).toMatch(/Opening room/);
       expect(target.textContent).toMatch(/Reach 43 within 21 days/);
-      // No branch renders these yet; pinned so the lead sees the gap.
-      expect(target.textContent).not.toMatch(/28 of 43 members\./);
-      expect(target.textContent).not.toMatch(/Mentions only\./);
+      // These are opaque display values supplied by the port.
+      expect(target.textContent).toMatch(/28 of 43 members\./);
+      expect(target.textContent).toMatch(/Mentions only\./);
       expect(target.textContent).not.toMatch(/garden-neighbours/);
     } finally {
       await cleanup();

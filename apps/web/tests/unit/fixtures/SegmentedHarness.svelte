@@ -1,7 +1,7 @@
 <script lang="ts">
   // Stateful rerender harness for SegmentedControl: owns `current` so
   // keyboard/pointer selection visibly swaps selection and roving tabindex.
-  import SegmentedControl from '../../../../ui/src/components/SegmentedControl.svelte';
+  import SegmentedControl from '../../../../../ui/src/components/SegmentedControl.svelte';
 
   const options = [
     { value: 'front' as const, label: 'Front' },
