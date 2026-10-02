@@ -10,7 +10,7 @@ async function joinAndPublish(page: import('@playwright/test').Page) {
   await page.getByLabel(/Choose a handle/).fill('e2e-member');
   await page.getByRole('button', { name: 'Continue to join' }).click();
   await expect(page.getByRole('heading', { name: 'Lobby' })).toBeVisible();
-  await page.getByRole('link', { name: 'Profile' }).click();
+  await page.getByRole('link', { name: 'Profile', exact: true }).click();
   await page.locator('#profile-age').fill('34');
   await page.locator('#profile-neighbourhood').selectOption('North');
   await page.getByRole('button', { name: 'Save profile' }).click();
