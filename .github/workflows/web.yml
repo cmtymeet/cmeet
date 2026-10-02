@@ -99,10 +99,14 @@ jobs:
 
       - name: UI fixture journeys (development server)
         if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/development
         run: npm run test:e2e
 
       - name: Production excludes fixtures and refuses unavailable runtime
         if: ${{ !cancelled() && steps.browser.outcome == 'success' && steps.closure.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/production
         run: npm run test:production
 
       - name: Upload Playwright report

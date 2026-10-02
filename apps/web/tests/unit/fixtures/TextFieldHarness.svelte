@@ -1,6 +1,6 @@
 <script lang="ts">
   import TextField from '../../../../../ui/src/components/TextField.svelte';
-  let choices = $state(['First', 'Second']);
+  let choices = $state(['First', 'Second', 'Multiple  spaces']);
   let value = $state('Second');
 </script>
 

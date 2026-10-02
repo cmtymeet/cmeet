@@ -1037,7 +1037,7 @@ describe('TextField inputs, help, errors and choices', () => {
       const controls = target.querySelectorAll('button');
       controls[0]!.click();
       await tick();
-      expect([...select.options].map((option) => option.value)).toEqual(['', 'First', 'Second', 'Third']);
+      expect([...select.options].map((option) => option.value)).toEqual(['', 'First', 'Second', 'Multiple  spaces', 'Third']);
       expect(select.value).toBe('Second');
       controls[1]!.click();
       await tick();
@@ -1046,6 +1046,10 @@ describe('TextField inputs, help, errors and choices', () => {
       select.dispatchEvent(new Event('change', { bubbles: true }));
       await tick();
       expect(target.querySelector('output')!.textContent).toBe('First');
+      select.value = 'Multiple  spaces';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick();
+      expect(target.querySelector('output')!.textContent).toBe('Multiple  spaces');
     } finally { await cleanup(); }
   });
   it('keeps an empty choice field unselected with only its placeholder', async () => {

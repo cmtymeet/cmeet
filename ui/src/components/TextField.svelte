@@ -34,7 +34,7 @@
   {#if choices}
     <select {id} value={`${value}`} onchange={handle} {required} aria-describedby={describedby} aria-invalid={error ? 'true' : undefined}>
       <option value="">Choose…</option>
-      {#each choices as choice}<option value={`${choice}`}>{choice}</option>{/each}
+      {#each choices as choice}<option {...{ value: choice }}>{choice}</option>{/each}
     </select>
   {:else if multiline}
     <textarea {id} value={String(value)} oninput={handle} rows="3" {required} {maxlength} {placeholder}
