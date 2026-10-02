@@ -4,6 +4,8 @@ import Unavailable from './Unavailable.svelte';
 import InstallPrompt from './InstallPrompt.svelte';
 import { createClient, Session } from './session.svelte.js';
 import { notifyServiceWorkerUnavailable, registerShellServiceWorker } from './pwa.js';
+import CliLogin from './views/CliLogin.svelte';
+import { createCliLoginPort, isCliLoginHash, takeLaunch } from './browser/cli-login.js';
 import './app.css';
 import { community } from './community.js';
 
@@ -38,10 +40,18 @@ if (import.meta.env.PROD) {
   });
 }
 
-const client = await createClient();
 const target = document.getElementById('app')!;
-const app = client
-  ? mount(App, { target, props: { session: new Session(client) } })
-  : mount(Unavailable, { target });
+let app;
+if (isCliLoginHash(window.location.hash)) {
+  // The page opened by "cmeet login": the launch fragment goes to the runtime port only.
+  const launch = takeLaunch(window);
+  const port = await createCliLoginPort(window.location.search);
+  app = mount(CliLogin, { target, props: { port, launch, pageOrigin: window.location.origin } });
+} else {
+  const client = await createClient();
+  app = client
+    ? mount(App, { target, props: { session: new Session(client) } })
+    : mount(Unavailable, { target });
+}
 
 export default app;
