@@ -82,6 +82,15 @@ export function routeHref(route: Route): string {
   }
 }
 
+// Garden selection is presentation only; cmsg authenticates every role action.
+export function routeForLocation(hash: string, hostname: string, development = false): Route {
+  if (hostname.startsWith('admin.root.')) return { name: 'root' };
+  if (hostname.startsWith('admin.')) return { name: 'admin-schema' };
+  const route = parseHash(hash);
+  if (!development && (route.name === 'root' || route.name === 'admin-schema')) return { name: 'arrival' };
+  return route;
+}
+
 export interface SessionSnapshot {
   connection: ConnectionStatus;
   joined: boolean;

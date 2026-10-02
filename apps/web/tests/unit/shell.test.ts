@@ -1,10 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
-import { Session, parseHash, routeHref } from '../../src/session.svelte.js';
+import { Session, parseHash, routeHref, routeForLocation } from '../../src/session.svelte.js';
 import App from '../../src/App.svelte';
 import { createDevCmsg } from '../../../../core/src/dev-adapter.js';
 
 describe('shell presentation', () => {
+  it('keeps production portals in their own gardens', () => {
+    expect(routeForLocation('#/root', 'community.example')).toEqual({ name: 'arrival' });
+    expect(routeForLocation('#/admin', 'community.example')).toEqual({ name: 'arrival' });
+    expect(routeForLocation('#/forum', 'admin.community.example')).toEqual({ name: 'admin-schema' });
+    expect(routeForLocation('#/admin', 'admin.root.example')).toEqual({ name: 'root' });
+    expect(routeForLocation('#/root', 'localhost', true)).toEqual({ name: 'root' });
+  });
   it('handles malformed routes and round-trips opaque identifiers', () => {
     expect(parseHash('#/chat/%E0%A4')).toEqual({ name: 'arrival' });
     expect(parseHash('#/groups/%')).toEqual({ name: 'arrival' });

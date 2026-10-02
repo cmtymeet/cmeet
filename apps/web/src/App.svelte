@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { Session, parseHash, routeHref, type Route } from './session.svelte.js';
+  import { Session, routeForLocation, routeHref, type Route } from './session.svelte.js';
   import { community } from './community.js';
   import { en } from '../../../ui/src/i18n/en.js';
   import Connecting from './views/Connecting.svelte';
@@ -23,13 +23,11 @@
   }
   let { session }: Props = $props();
 
-  // Host chooses the portal presentation, never authority. cmsg verifies roles.
-  const portal = window.location.hostname.startsWith('admin.root.') ? 'root'
-    : window.location.hostname.startsWith('admin.') ? 'admin-schema' : null;
-  let route: Route = $state(portal ? { name: portal } : parseHash(window.location.hash));
+  const currentRoute = () => routeForLocation(window.location.hash, window.location.hostname, import.meta.env.DEV);
+  let route: Route = $state(currentRoute());
 
   function onHashChange() {
-    route = portal ? { name: portal } : parseHash(window.location.hash);
+    route = currentRoute();
     void tick().then(() => document.getElementById('content')?.focus());
   }
 
