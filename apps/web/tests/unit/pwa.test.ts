@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
 import InstallPrompt from '../../src/InstallPrompt.svelte';
-import { SW_UNAVAILABLE_EVENT } from '../../src/pwa.js';
+import { SW_UNAVAILABLE_EVENT, registerShellServiceWorker } from '../../src/pwa.js';
 
 type PromptDouble = Event & { prompt: () => Promise<void> };
 
@@ -166,5 +166,68 @@ describe('install prompt', () => {
       window.dispatchEvent(new CustomEvent(SW_UNAVAILABLE_EVENT));
     }).not.toThrow();
     expect(prompt).not.toHaveBeenCalled();
+  });
+});
+
+describe('service worker registration', () => {
+  const realServiceWorker = Object.getOwnPropertyDescriptor(window.navigator, 'serviceWorker')?.value;
+
+  afterEach(() => {
+    if (realServiceWorker === undefined) {
+      Reflect.deleteProperty(window.navigator, 'serviceWorker');
+    } else {
+      Object.defineProperty(window.navigator, 'serviceWorker', {
+        configurable: true,
+        writable: true,
+        value: realServiceWorker,
+      });
+    }
+    Reflect.deleteProperty(document, 'readyState');
+  });
+
+  function stubWorker(register: () => Promise<unknown>) {
+    Object.defineProperty(window.navigator, 'serviceWorker', {
+      configurable: true,
+      writable: true,
+      value: { register },
+    });
+  }
+
+  function stubReadyState(value: string) {
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => value });
+  }
+
+  it('rejects where service workers are unsupported', async () => {
+    Reflect.deleteProperty(window.navigator, 'serviceWorker');
+    await expect(registerShellServiceWorker()).rejects.toThrow();
+  });
+
+  it('registers at once when the document is already complete', async () => {
+    const register = vi.fn(async () => ({}));
+    stubWorker(register);
+    stubReadyState('complete');
+    await registerShellServiceWorker();
+    expect(register).toHaveBeenCalledTimes(1);
+    expect(register).toHaveBeenCalledWith('./sw.js');
+  });
+
+  it('waits for load when the document is still loading', async () => {
+    const register = vi.fn(async () => ({}));
+    stubWorker(register);
+    stubReadyState('loading');
+    const pending = registerShellServiceWorker();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(register).not.toHaveBeenCalled();
+    window.dispatchEvent(new Event('load'));
+    await pending;
+    expect(register).toHaveBeenCalledWith('./sw.js');
+  });
+
+  it('propagates rejection so the caller can report limited offline use', async () => {
+    stubWorker(async () => {
+      throw new Error('denied');
+    });
+    stubReadyState('complete');
+    await expect(registerShellServiceWorker()).rejects.toThrow('denied');
   });
 });

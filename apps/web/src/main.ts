@@ -1,4 +1,4 @@
-import { mount } from 'svelte';
+import { flushSync, mount } from 'svelte';
 import App from './App.svelte';
 import Unavailable from './Unavailable.svelte';
 import InstallPrompt from './InstallPrompt.svelte';
@@ -19,11 +19,23 @@ if (community.theme !== 'default') {
   document.head.appendChild(link);
 }
 
-// Mount the install prompt before the async client starts so the
-// beforeinstallprompt listener is captured while the app still loads.
+// Mount the install prompt first so its beforeinstallprompt listener is
+// attached before anything asynchronous runs. flushSync guarantees the
+// listeners exist before the registration below can fail.
 const installTarget = document.getElementById('install');
 if (installTarget) {
-  mount(InstallPrompt, { target: installTarget });
+  flushSync(() => {
+    mount(InstallPrompt, { target: installTarget });
+  });
+}
+
+// Register the offline shell before the client starts: a future real client
+// can block, and installability must not wait for it. A missing or rejected
+// worker is reported as limited offline availability, never readiness.
+if (import.meta.env.PROD) {
+  registerShellServiceWorker().catch(() => {
+    notifyServiceWorkerUnavailable();
+  });
 }
 
 const client = await createClient();
@@ -31,15 +43,5 @@ const target = document.getElementById('app')!;
 const app = client
   ? mount(App, { target, props: { session: new Session(client) } })
   : mount(Unavailable, { target });
-
-// Offline-capable shell. Content stays on devices and the DHT; the worker
-// only caches same-origin app files. Registration must not wait only for a
-// future load event: the document may already be complete (see pwa.ts).
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  registerShellServiceWorker().catch(() => {
-    // Offline use stays limited; never claim the connection is ready.
-    notifyServiceWorkerUnavailable();
-  });
-}
 
 export default app;
