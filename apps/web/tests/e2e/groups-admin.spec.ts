@@ -16,6 +16,12 @@ async function join(page: import('@playwright/test').Page) {
 test('groups, devices, admin schema and root', async ({ page }) => {
   await join(page);
 
+  await page.getByRole('link', { name: 'Profile', exact: true }).click();
+  await page.locator('#profile-age').fill('34');
+  await page.locator('#profile-neighbourhood').selectOption('North');
+  await page.getByRole('button', { name: 'Save profile' }).click();
+  await expect(page.getByText('Profile published and checked.')).toBeVisible();
+
   // Groups show their level and what changes next.
   await page.getByRole('link', { name: 'Groups' }).click();
   await expect(page.getByRole('heading', { name: 'Groups' })).toBeVisible();
@@ -38,7 +44,7 @@ test('groups, devices, admin schema and root', async ({ page }) => {
   await expect(page.getByText('Spare phone')).toBeVisible();
 
   // The admin schema editor reorders questions and previews the member view.
-  await page.getByRole('link', { name: 'Schema' }).click();
+  await page.evaluate(() => { location.hash = '#/admin'; });
   await expect(page.getByRole('heading', { name: 'Profile schema' })).toBeVisible();
   await page.getByRole('button', { name: 'Sign in as admin' }).click();
   await expect(page.getByRole('heading', { name: 'Live preview' })).toBeVisible();
@@ -50,7 +56,7 @@ test('groups, devices, admin schema and root', async ({ page }) => {
   await expect(page.getByText(/Profiles needing changes/)).toBeVisible();
 
   // Root selects a community without touching members.
-  await page.getByRole('link', { name: 'Root' }).click();
+  await page.evaluate(() => { location.hash = '#/root'; });
   await expect(page.getByRole('heading', { name: 'Communities' })).toBeVisible();
   await page.getByRole('button', { name: 'Sign in as root' }).click();
   await page.getByRole('button', { name: 'Select' }).first().click();

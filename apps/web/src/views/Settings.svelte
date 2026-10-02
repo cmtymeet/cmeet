@@ -9,24 +9,31 @@
   let { client }: Props = $props();
 
   let note = $state('');
+  let busy = $state(false);
 
   async function signOut() {
+    if (busy) return;
+    busy = true;
     try {
       await client.disconnect();
       window.location.hash = '#/arrival';
       window.location.reload();
     } catch {
       note = 'Signing out did not work. Try again.';
+      busy = false;
     }
   }
 </script>
 
 <section class="page" aria-labelledby="settings-title">
   <h1 id="settings-title">Settings</h1>
-  <p class="muted">Community: {community.displayName}. Theme: {community.theme}. English first; more languages follow the same string keys.</p>
+  <p class="muted">Community: {community.displayName}. Your profile and conversations belong to you.</p>
   {#if note}<Notice tone="error">{note}</Notice>{/if}
   <div class="row">
     <Button onclick={() => (window.location.hash = '#/lobby')}>Back to lobby</Button>
-    <Button variant="danger" onclick={() => void signOut()}>Sign out</Button>
+    <Button variant="danger" {busy} onclick={() => void signOut()}>Sign out</Button>
   </div>
+  {#if import.meta.env.DEV}
+    <details><summary>Development portals</summary><p><a href="#/admin">Schema</a> · <a href="#/root">Root</a></p></details>
+  {/if}
 </section>

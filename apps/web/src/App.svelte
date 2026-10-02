@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { Session, parseHash, routeHref, type Route } from './session.svelte.js';
+  import { onMount, tick } from 'svelte';
+  import { Session, routeForLocation, routeHref, type Route } from './session.svelte.js';
   import { community } from './community.js';
   import { en } from '../../../ui/src/i18n/en.js';
   import Connecting from './views/Connecting.svelte';
@@ -23,10 +23,12 @@
   }
   let { session }: Props = $props();
 
-  let route: Route = $state(parseHash(window.location.hash));
+  const currentRoute = () => routeForLocation(window.location.hash, window.location.hostname, import.meta.env.DEV);
+  let route: Route = $state(currentRoute());
 
   function onHashChange() {
-    route = parseHash(window.location.hash);
+    route = currentRoute();
+    void tick().then(() => document.getElementById('content')?.focus());
   }
 
   onMount(() => {
@@ -34,6 +36,7 @@
     void session.start();
     return () => {
       window.removeEventListener('hashchange', onHashChange);
+      session.stop();
     };
   });
 
@@ -41,8 +44,11 @@
   const failed = $derived(session.failed);
   const joined = $derived(session.snapshot.joined);
   const needsArrival = $derived(
-    !['arrival', 'settings', 'root'].includes(route.name) && !joined,
+    !['arrival', 'settings', 'root', 'admin-schema'].includes(route.name) && !joined,
   );
+
+  const admitted = $derived(session.snapshot.lobby?.admitted === true);
+  const needsLobby = $derived(joined && !admitted && ['forum', 'waves', 'contacts', 'chat', 'groups', 'group'].includes(route.name));
 
   function navCurrent(name: string) {
     return route.name === name ? 'page' : undefined;
@@ -57,38 +63,43 @@
   <title>{community.displayName} · {en.app.name}</title>
 </svelte:head>
 
-<a class="skip-link" href="#content">{en.app.skipToContent}</a>
+<a class="skip-link" href="#content" onclick={(event) => { event.preventDefault(); document.getElementById('content')?.focus(); }}>{en.app.skipToContent}</a>
 
 {#if !ready && !failed}
-  <main id="content" class="layout">
+  <main id="content" tabindex="-1" class="layout">
     <Connecting status={session.snapshot.connection} onretry={() => session.retry()} />
   </main>
 {:else if failed}
-  <main id="content" class="layout">
+  <main id="content" tabindex="-1" class="layout">
     <Connecting status={session.snapshot.connection} onretry={() => session.retry()} />
   </main>
 {:else if needsArrival}
-  <main id="content" class="layout">
+  <main id="content" tabindex="-1" class="layout">
     <Arrival session={session.client} onjoined={() => { session.markJoined(); go({ name: 'lobby' }); }} />
   </main>
 {:else}
   <nav class="topnav" aria-label="Primary">
     <span class="brand">{community.displayName}</span>
+    {#if joined && admitted}
     <a href="#/forum" aria-current={navCurrent('forum')}>Discover</a>
     <a href="#/waves" aria-current={navCurrent('waves')}>
       First contact{#if session.snapshot.unreadWaves > 0} ({session.snapshot.unreadWaves}){/if}
     </a>
     <a href="#/groups" aria-current={route.name === 'groups' || route.name === 'group' ? 'page' : undefined}>Groups</a>
     <a href="#/contacts" aria-current={navCurrent('contacts')}>Contacts</a>
+    {/if}
+    {#if joined}
     <a href="#/profile" aria-current={navCurrent('profile')}>Profile</a>
     <a href="#/lobby" aria-current={navCurrent('lobby')}>Lobby</a>
     <a href="#/devices" aria-current={navCurrent('devices')}>Devices</a>
-    <a href="#/admin" aria-current={navCurrent('admin-schema')}>Schema</a>
-    <a href="#/root" aria-current={navCurrent('root')}>Root</a>
+    {/if}
     <a href="#/settings" aria-current={navCurrent('settings')}>Settings</a>
   </nav>
-  <main id="content" class="layout">
-    {#if route.name === 'arrival'}
+  <main id="content" tabindex="-1" class="layout">
+    {#key routeHref(route)}
+    {#if needsLobby}
+      <Lobby client={session.client} />
+    {:else if route.name === 'arrival'}
       <Arrival session={session.client} onjoined={() => { session.markJoined(); go({ name: 'lobby' }); }} />
     {:else if route.name === 'lobby'}
       <Lobby client={session.client} />
@@ -115,5 +126,6 @@
     {:else}
       <Settings client={session.client} />
     {/if}
+    {/key}
   </main>
 {/if}
