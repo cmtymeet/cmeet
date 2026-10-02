@@ -17,7 +17,7 @@ async function join(page: import('@playwright/test').Page) {
 test('groups list shows bands and opening, joins rooms only with consent', async ({ page }) => {
   await join(page);
 
-  await page.getByRole('link', { name: 'Groups' }).click();
+  await page.getByRole('link', { name: 'Groups', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Groups' })).toBeVisible();
 
   // Every supplied level is named; the size is shown, never computed here.

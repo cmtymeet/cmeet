@@ -34,6 +34,8 @@ export const groupsStrings = {
   openDetails: 'Open details',
   joinTitlePrefix: 'Join',
   consentCheckbox: 'I understand and consent to this visibility.',
+  consentFallback:
+    "Members see each other's private profiles. Joining means consenting to that visibility.",
   consentNote: 'Joining, forking, merging and splitting never cost a Wave.',
   cancel: 'Cancel',
   joinFailed: 'Joining did not work.',

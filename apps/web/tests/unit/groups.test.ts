@@ -192,6 +192,115 @@ describe('groups list', () => {
     }
   });
 
+  it('shows a refused consent join inside the dialog and locks its controls while submitting', async () => {
+    window.location.hash = '';
+    const base = createDevCmsg();
+    let rejectJoin!: (reason: Error) => void;
+    const gated: CmsgClient = {
+      ...base,
+      joinGroup: (id: string, consent?: boolean) =>
+        new Promise<GroupView>((_resolve, reject) => {
+          rejectJoin = reject;
+        }).then(() => base.joinGroup(id, consent)),
+    };
+    const { target, cleanup } = render(gated);
+    try {
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Saturday market/));
+      buttonIn(articleByName(target, 'Saturday market')!, 'Join')?.click();
+      await tick();
+      const dialog = target.querySelector('[role="dialog"]')!;
+      (target.querySelector('#join-consent-check') as HTMLInputElement).click();
+      await tick();
+      buttonIn(dialog, /Join Saturday market/)?.click();
+      await tick();
+      // While submitting, the dialog locks and the background stays inert.
+      expect((target.querySelector('#join-consent-check') as HTMLInputElement).disabled).toBe(true);
+      expect(buttonIn(dialog, 'Cancel')!.disabled).toBe(true);
+      expect(buttonIn(articleByName(target, 'Saturday market')!, 'Join')!.disabled).toBe(true);
+      rejectJoin(new Error('The groups service is unavailable. Try again later.'));
+      await vi.waitFor(() => expect(dialog.querySelector('[role="alert"]')).not.toBeNull());
+      expect(dialog.textContent).toMatch(/did not work/);
+      // The dialog stays open for an explicit retry or cancel; nothing navigated.
+      expect(target.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(window.location.hash).not.toContain('group-market');
+      buttonIn(dialog, 'Cancel')?.click();
+      await tick();
+      expect(target.querySelector('[role="dialog"]')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('explains visibility in the dialog when the API supplies no consent text', async () => {
+    window.location.hash = '';
+    const quietRoom: GroupView = { ...BAND_GROUP, id: 'group-quiet-room', name: 'Quiet room', joinConsent: null };
+    const { target, cleanup } = render(createDevCmsg({ groups: [quietRoom] }));
+    try {
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Quiet room/));
+      buttonIn(articleByName(target, 'Quiet room')!, 'Join')?.click();
+      await tick();
+      const dialog = target.querySelector('[role="dialog"]')!;
+      expect(dialog.textContent).toMatch(/private profiles/);
+      expect(dialog.textContent).toMatch(/consenting to that visibility/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('does not navigate after teardown when a slow join completes', async () => {
+    window.location.hash = '';
+    const base = createDevCmsg();
+    let release!: () => void;
+    const slow: CmsgClient = {
+      ...base,
+      joinGroup: async (id: string, consent?: boolean) => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return base.joinGroup(id, consent);
+      },
+    };
+    const { target, cleanup } = render(slow);
+    try {
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Evening choir/));
+      buttonIn(articleByName(target, 'Evening choir')!, 'Join')?.click();
+      await tick();
+      expect(typeof release).toBe('function');
+      // The member navigates away before the slow join completes.
+      cleanup();
+      window.location.hash = '#/forum';
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(window.location.hash).toBe('#/forum');
+    } finally {
+      window.location.hash = '';
+    }
+  });
+
+  it('recovers through retry after a refused load and clears the error', async () => {
+    window.location.hash = '';
+    const base = createDevCmsg();
+    let calls = 0;
+    const flaky: CmsgClient = {
+      ...base,
+      groups: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error('The groups service is unavailable. Try again later.');
+        return base.groups();
+      },
+    };
+    const { target, cleanup } = render(flaky);
+    try {
+      await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+      expect(target.textContent).toMatch(/unavailable/);
+      expect(target.textContent).not.toMatch(/No groups yet/);
+      buttonIn(target, 'Try again')?.click();
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Saturday market/));
+      expect(target.querySelector('[role="alert"]')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
   it('lets the adapter refuse room joins without affirmative consent', async () => {
     const client = createDevCmsg();
     await expect(client.joinGroup('group-market')).rejects.toThrow('consent');

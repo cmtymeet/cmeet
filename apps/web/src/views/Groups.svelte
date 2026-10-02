@@ -14,16 +14,33 @@
   let loading = $state(true);
   let loadError = $state('');
   let actionError = $state('');
+  let dialogError = $state('');
   let pendingJoin: GroupView | null = $state(null);
   let consentChecked = $state(false);
   let joinBusyId: string | null = $state(null);
   let leaveBusyId: string | null = $state(null);
   let dialogBusy = $state(false);
+  // Teardown generation: bumped only on unmount. Async completions check it
+  // so late responses never touch state or navigate after teardown. Kept
+  // separate from loadSeq so an action's own cmsg events cannot invalidate
+  // its completion.
+  let alive = true;
+  let lifecycle = 0;
   let loadSeq = 0;
   let errorRef: HTMLElement | null = $state(null);
+  let dialogErrorRef: HTMLElement | null = $state(null);
+  // Every card locks its mutation buttons while any join/leave is pending or
+  // the consent dialog is open (background is inert); navigation stays live.
+  let cardsLocked = $derived(
+    joinBusyId !== null || leaveBusyId !== null || dialogBusy || pendingJoin !== null,
+  );
 
   function focusError() {
     void tick().then(() => errorRef?.focus());
+  }
+
+  function focusDialogError() {
+    void tick().then(() => dialogErrorRef?.focus());
   }
 
   function messageOf(e: unknown, fallback: string): string {
@@ -40,51 +57,64 @@
   async function load() {
     loading = true;
     loadError = '';
+    const life = lifecycle;
     const seq = ++loadSeq;
     try {
       const next = await client.groups();
-      if (seq !== loadSeq) return;
+      if (!alive || life !== lifecycle || seq !== loadSeq) return;
       groups = next;
       loaded = true;
+      loadError = '';
     } catch (e) {
-      if (seq !== loadSeq) return;
+      if (!alive || life !== lifecycle || seq !== loadSeq) return;
       loaded = true;
       loadError = messageOf(e, t.loadFailed);
       focusError();
     } finally {
-      if (seq === loadSeq) loading = false;
+      if (alive && life === lifecycle && seq === loadSeq) loading = false;
     }
   }
 
   async function refresh() {
-    loadSeq += 1;
-    const seq = loadSeq;
+    const life = lifecycle;
+    const seq = ++loadSeq;
     try {
       const next = await client.groups();
-      if (seq !== loadSeq) return;
+      if (!alive || life !== lifecycle || seq !== loadSeq) return;
       groups = next;
       loaded = true;
+      loadError = '';
     } catch (e) {
-      if (seq !== loadSeq) return;
+      if (!alive || life !== lifecycle || seq !== loadSeq) return;
       loadError = messageOf(e, t.loadFailed);
     }
   }
 
   onMount(() => {
+    alive = true;
     void load();
-    return client.subscribe((event) => {
+    const stop = client.subscribe((event) => {
+      if (!alive) return;
       if (event.type === 'groups') {
         // Live updates are fresher than any in-flight load; invalidate it.
+        // A successful refresh/event also clears a stale load error.
         loadSeq += 1;
         groups = event.groups;
         loaded = true;
         loading = false;
+        loadError = '';
       }
     });
+    return () => {
+      alive = false;
+      lifecycle += 1;
+      loadSeq += 1;
+      stop();
+    };
   });
 
   function askJoin(id: string) {
-    if (joinBusyId !== null || leaveBusyId !== null || dialogBusy) return;
+    if (pendingJoin !== null || joinBusyId !== null || leaveBusyId !== null || dialogBusy) return;
     const group = groups.find((g) => g.id === id);
     if (!group) return;
     actionError = '';
@@ -93,29 +123,43 @@
       return;
     }
     consentChecked = false;
+    dialogError = '';
     pendingJoin = group;
   }
 
   async function doJoin(id: string, consent: true | undefined) {
     if (joinBusyId !== null || dialogBusy) return;
+    const life = lifecycle;
     if (consent === true) dialogBusy = true;
     else joinBusyId = id;
     actionError = '';
+    if (consent === true) dialogError = '';
     try {
       if (consent === true) {
         await client.joinGroup(id, true);
       } else {
         await client.joinGroup(id);
       }
+      if (!alive || life !== lifecycle) return;
       pendingJoin = null;
+      dialogError = '';
       await refresh();
+      if (!alive || life !== lifecycle) return;
       window.location.hash = `#/groups/${encodeURIComponent(id)}`;
     } catch (e) {
-      actionError = messageOf(e, t.joinFailed);
-      focusError();
+      if (!alive || life !== lifecycle) return;
+      if (consent === true) {
+        dialogError = messageOf(e, t.joinFailed);
+        focusDialogError();
+      } else {
+        actionError = messageOf(e, t.joinFailed);
+        focusError();
+      }
     } finally {
-      joinBusyId = null;
-      dialogBusy = false;
+      if (alive && life === lifecycle) {
+        joinBusyId = null;
+        dialogBusy = false;
+      }
     }
   }
 
@@ -125,22 +169,26 @@
   }
 
   async function leave(id: string) {
-    if (joinBusyId !== null || leaveBusyId !== null || dialogBusy) return;
+    if (pendingJoin !== null || joinBusyId !== null || leaveBusyId !== null || dialogBusy) return;
+    const life = lifecycle;
     leaveBusyId = id;
     actionError = '';
     try {
       await client.leaveGroup(id);
+      if (!alive || life !== lifecycle) return;
       await refresh();
     } catch (e) {
+      if (!alive || life !== lifecycle) return;
       actionError = messageOf(e, t.leaveFailed);
       focusError();
     } finally {
-      leaveBusyId = null;
+      if (alive && life === lifecycle) leaveBusyId = null;
     }
   }
 
   function closeDialog() {
     if (dialogBusy) return;
+    dialogError = '';
     pendingJoin = null;
   }
 </script>
@@ -188,6 +236,7 @@
           membersLabel={t.members}
           joinBusy={joinBusyId === group.id}
           leaveBusy={leaveBusyId === group.id}
+          disabled={cardsLocked}
           onjoin={(id) => askJoin(id)}
           onleave={(id) => void leave(id)}
           onopen={(id) => (window.location.hash = `#/groups/${encodeURIComponent(id)}`)}
@@ -203,22 +252,28 @@
         <span class="muted">{pendingJoin.size} {t.members}</span>
       </p>
       <p class="muted"><strong>{t.whatChangesNext}:</strong> {pendingJoin.whatChangesNext}</p>
-      <p id="join-consent">{pendingJoin.joinConsent ?? t.consentCheckbox}</p>
+      <p id="join-consent">{pendingJoin.joinConsent ?? t.consentFallback}</p>
       <label class="consent-row" for="join-consent-check">
         <input
           id="join-consent-check"
           type="checkbox"
           checked={consentChecked}
+          disabled={dialogBusy}
           onchange={(e) => (consentChecked = e.currentTarget.checked)}
         />
         {t.consentCheckbox}
       </label>
       <p class="muted">{t.consentNote}</p>
+      {#if dialogError}
+        <div bind:this={dialogErrorRef} tabindex="-1" class="groups-error">
+          <Notice tone="error">{dialogError}</Notice>
+        </div>
+      {/if}
       <div class="dialog-actions">
         <Button variant="primary" disabled={!consentChecked} busy={dialogBusy} busyLabel={t.joiningBusy} onclick={confirmJoin}>
           {t.joinTitlePrefix} {pendingJoin.name}
         </Button>
-        <Button onclick={closeDialog}>{t.cancel}</Button>
+        <Button disabled={dialogBusy} onclick={closeDialog}>{t.cancel}</Button>
       </div>
     </Dialog>
   {/if}

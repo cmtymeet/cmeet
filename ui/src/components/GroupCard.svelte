@@ -18,6 +18,9 @@
     membersLabel?: string;
     joinBusy?: boolean;
     leaveBusy?: boolean;
+    /** Global mutation lock: disables join/leave on every card while any
+        join/leave is pending or the consent dialog is open. Navigation stays live. */
+    disabled?: boolean;
     onjoin?: (id: string) => void;
     onleave?: (id: string) => void;
     onopen?: (id: string) => void;
@@ -39,6 +42,7 @@
     membersLabel = 'members',
     joinBusy = false,
     leaveBusy = false,
+    disabled = false,
     onjoin,
     onleave,
     onopen,
@@ -78,9 +82,9 @@
   <div class="actions">
     {#if group.joined}
       <span class="joined">{joinedLabel}</span>
-      <button class="btn" disabled={leaveBusy} aria-busy={leaveBusy || undefined} onclick={() => onleave?.(group.id)}>{leaveLabel}</button>
+      <button class="btn" disabled={disabled || leaveBusy} aria-busy={leaveBusy || undefined} onclick={() => onleave?.(group.id)}>{leaveLabel}</button>
     {:else}
-      <button class="btn primary" disabled={joinBusy} aria-busy={joinBusy || undefined} onclick={() => onjoin?.(group.id)}>{joinLabel}</button>
+      <button class="btn primary" disabled={disabled || joinBusy} aria-busy={joinBusy || undefined} onclick={() => onjoin?.(group.id)}>{joinLabel}</button>
     {/if}
   </div>
 </article>
