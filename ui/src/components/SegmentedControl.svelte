@@ -17,7 +17,7 @@
     if (event.key === 'ArrowRight') next = (index + 1) % options.length;
     else if (event.key === 'ArrowLeft') next = (index - 1 + options.length) % options.length;
     else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = options.length - 1;
+    else next = options.length - 1;
     const nextValue = options[next].value;
     if (nextValue !== current) onselect?.(nextValue);
     const list = event.currentTarget as HTMLElement | null;

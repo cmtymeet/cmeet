@@ -7,7 +7,7 @@
   let { level, labels = { circle: 'Circle', ingroup: 'Ingroup', room: 'Public room', opening: 'Opening room' } }: Props = $props();
 </script>
 
-<span class="badge badge-{level}">{labels[level] ?? level}</span>
+<span class={`badge badge-${level}`}>{labels[level] ?? level}</span>
 
 <style>
   .badge {

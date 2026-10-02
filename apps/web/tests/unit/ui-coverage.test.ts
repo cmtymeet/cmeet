@@ -325,6 +325,14 @@ describe('Dialog native open/close, labelling, focus and keyboard', () => {
     opener.remove();
   });
 
+  it('cleans up a dialog already closed by the browser', async () => {
+    const { target, cleanup } = render(Dialog, { open: true, labelledBy: 'closed-dialog' });
+    await tick();
+    dialogOf(target).close();
+    expect(dialogOf(target).open).toBe(false);
+    await cleanup();
+  });
+
   it('renders real snippet children, closes through the harness and reopens', async () => {
     const onclose = vi.fn();
     const { target, cleanup } = render(DialogHarness, { onclose });
@@ -1019,6 +1027,16 @@ describe('SegmentedControl options, selection and keyboard', () => {
 });
 
 describe('TextField inputs, help, errors and choices', () => {
+  it('keeps an empty choice field unselected with only its placeholder', async () => {
+    const { target, cleanup } = render(TextField, { id: 'empty-options', label: 'Answer', choices: [], value: '' });
+    try {
+      await tick();
+      const select = target.querySelector('select')!;
+      expect(select.value).toBe('');
+      expect(select.options).toHaveLength(1);
+      expect(select.options[0]!.text).toBe('Choose…');
+    } finally { await cleanup(); }
+  });
   it('associates the label with the input', async () => {
     const { target, cleanup } = render(TextField, { id: 'handle', label: 'Choose a handle', value: '' });
     try {
@@ -1433,6 +1451,15 @@ describe('GroupCard levels, joining and suggestions', () => {
     messages: [],
     suggestion: null,
   };
+
+  it('omits newcomer history when the owner supplies no description', async () => {
+    const { target, cleanup } = render(GroupCard, { group: { ...circle, newcomerHistory: '' } });
+    try {
+      await tick();
+      expect(target.querySelector('.history')).toBeNull();
+      expect(target.textContent).toContain('Community garden');
+    } finally { await cleanup(); }
+  });
 
   it('announces the group name and member count', async () => {
     const { target, cleanup } = render(GroupCard, { group: circle });

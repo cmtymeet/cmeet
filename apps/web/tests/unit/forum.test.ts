@@ -31,11 +31,17 @@ function render(client: CmsgClient) {
   const component = mount(Forum, { target, props: { client } });
   return {
     target,
-    cleanup: () => {
-      unmount(component);
+    cleanup: async () => {
+      await unmount(component);
       target.remove();
     },
   };
+}
+
+function cardByHandle(target: HTMLElement, handle: string) {
+  return [...target.querySelectorAll('article')].find((card) =>
+    card.getAttribute('aria-label') === `Public profile of ${handle}`,
+  ) ?? null;
 }
 
 function buttonByName(target: HTMLElement, name: string): HTMLButtonElement | null {
@@ -76,8 +82,8 @@ describe('forum discovery', () => {
   it('lists online two-way matches with schema controls and no private values', async () => {
     const { target, cleanup } = render(await admitted());
     try {
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
-      expect(target.textContent).toMatch(/tom-cooks/);
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
+      expect(cardByHandle(target, 'tom-cooks')).not.toBeNull();
       expect(target.querySelector('#filter-neighbourhood')).not.toBeNull();
       expect(target.querySelector('#filter-age-min')).not.toBeNull();
       expect(target.querySelector('#filter-age-max')).not.toBeNull();
@@ -87,21 +93,21 @@ describe('forum discovery', () => {
       // Viewing the list sends no key or wave traffic by itself.
       expect(target.textContent).not.toMatch(/Key accepted|Not a match/);
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
   it('narrows the list through a schema choice filter and restores it', async () => {
     const { target, cleanup } = render(await admitted());
     try {
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
       await fill(target, 'filter-neighbourhood', 'East');
-      await vi.waitFor(() => expect(target.querySelector('article[aria-label="Public profile of ana-walks"]')).toBeNull());
-      expect(target.textContent).toMatch(/tom-cooks/);
+      await vi.waitFor(() => expect(cardByHandle(target, 'tom-cooks')).not.toBeNull());
+      expect(cardByHandle(target, 'ana-walks')).toBeNull();
       await fill(target, 'filter-neighbourhood', '');
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -110,7 +116,7 @@ describe('forum discovery', () => {
     const spy = vi.spyOn(client, 'discover');
     const { target, cleanup } = render(client);
     try {
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
       spy.mockClear();
       await fill(target, 'filter-age-min', '30');
       await fill(target, 'filter-age-max', '40');
@@ -133,10 +139,10 @@ describe('forum discovery', () => {
         ),
       );
       // Nearby members stay; the far-away member drops out without UI distance math.
-      await vi.waitFor(() => expect(target.textContent).not.toMatch(/rin-reads/));
-      expect(target.textContent).toMatch(/ana-walks/);
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
+      expect(cardByHandle(target, 'rin-reads')).toBeNull();
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -172,7 +178,7 @@ describe('forum discovery', () => {
         ),
       );
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -183,10 +189,10 @@ describe('forum discovery', () => {
       const before = target.textContent ?? '';
       expect(before).toMatch(/ana-walks/);
       buttonByName(target, 'Load more')?.click();
-      await vi.waitFor(() => expect(target.textContent).toMatch(/tom-cooks/));
-      expect(target.textContent).toMatch(/ana-walks/);
+      await vi.waitFor(() => expect(cardByHandle(target, 'tom-cooks')).not.toBeNull());
+      expect(cardByHandle(target, 'ana-walks')).not.toBeNull();
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -210,16 +216,16 @@ describe('forum discovery', () => {
     try {
       await vi.waitFor(() => expect(calls).toBe(1));
       await fill(target, 'filter-neighbourhood', 'East');
-      await vi.waitFor(() => expect(target.textContent).toMatch(/tom-cooks/));
-      expect(target.querySelector('article[aria-label="Public profile of ana-walks"]')).toBeNull();
+      await vi.waitFor(() => expect(cardByHandle(target, 'tom-cooks')).not.toBeNull());
+      expect(cardByHandle(target, 'ana-walks')).toBeNull();
       releaseFirst({ entries: [], cursor: null });
       await tick();
       await tick();
       // The stale first page must not wipe the newer filtered view.
-      expect(target.textContent).toMatch(/tom-cooks/);
-      expect(target.querySelector('article[aria-label="Public profile of ana-walks"]')).toBeNull();
+      expect(cardByHandle(target, 'tom-cooks')).not.toBeNull();
+      expect(cardByHandle(target, 'ana-walks')).toBeNull();
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -249,20 +255,20 @@ describe('forum discovery', () => {
       // A reset arrives while the first search is still in flight: only ana remains.
       handler()!({ type: 'matches', page: { entries: anaOnly, cursor: null }, reset: true });
       await tick();
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
       // The stale search resolves late with the departed member included.
       releaseStale(full);
       await tick();
       await tick();
       await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(target.textContent).toMatch(/ana-walks/);
-      expect(target.textContent).not.toMatch(/tom-cooks/);
+      expect(cardByHandle(target, 'ana-walks')).not.toBeNull();
+      expect(cardByHandle(target, 'tom-cooks')).toBeNull();
       // The interrupted page is not stuck loading: controls stay usable.
       expect(target.textContent).not.toMatch(/Loading…/);
       expect(target.querySelector('#filter-neighbourhood')).not.toBeNull();
       expect(target.querySelector('[role="alert"]')).toBeNull();
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -270,19 +276,19 @@ describe('forum discovery', () => {
     const client = await admitted();
     const { target, cleanup } = render(client);
     try {
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
       // The key request takes 200ms in the fixture; reset the filters at once.
       buttonByName(target, 'Want to know more')!.click();
       await fill(target, 'filter-neighbourhood', 'East');
-      await vi.waitFor(() => expect(target.textContent).toMatch(/tom-cooks/));
+      await vi.waitFor(() => expect(cardByHandle(target, 'tom-cooks')).not.toBeNull());
       await new Promise((resolve) => setTimeout(resolve, 350));
       // The stale acceptance must not resurface a preview or note afterwards.
       expect(target.textContent).not.toMatch(/Front: public profile/);
       expect(target.textContent).not.toMatch(/Key accepted/);
       expect(target.textContent).not.toMatch(/Checking…/);
-      expect(target.textContent).toMatch(/tom-cooks/);
+      expect(cardByHandle(target, 'tom-cooks')).not.toBeNull();
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -290,14 +296,14 @@ describe('forum discovery', () => {
     const client = await admitted();
     const { target, cleanup } = render(client);
     try {
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
       buttonByName(target, 'Want to know more')!.click();
       await tick();
       expect(buttonByName(target, 'Want to know more')?.disabled).toBe(true);
       await vi.waitFor(() => expect(target.textContent).toMatch(/Key accepted/));
       expect(buttonByName(target, 'Want to know more')?.disabled).toBe(false);
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -306,18 +312,18 @@ describe('forum discovery', () => {
     const exchangesSpy = vi.spyOn(base, 'profileExchanges');
     const { target, cleanup } = render(base);
     try {
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
       expect(exchangesSpy).toHaveBeenCalled();
       exchangesSpy.mockClear();
       // Start a key request (200ms fixture delay) and unmount before it lands.
       buttonByName(target, 'Want to know more')!.click();
-      cleanup();
+      await cleanup();
       await new Promise((resolve) => setTimeout(resolve, 400));
       // The late response must not trigger the follow-up exchanges refresh.
       expect(exchangesSpy).not.toHaveBeenCalled();
     } finally {
       try {
-        cleanup();
+        await cleanup();
       } catch {
         // Already unmounted above; teardown itself must stay safe.
       }
@@ -371,7 +377,7 @@ describe('forum discovery', () => {
       expect(warnings.join('\n')).not.toMatch(/duplicate/i);
       expect(errors.join('\n')).not.toMatch(/duplicate/i);
     } finally {
-      cleanup();
+      await cleanup();
       warnSpy.mockRestore();
       errorSpy.mockRestore();
     }
@@ -381,7 +387,7 @@ describe('forum discovery', () => {
     const client = await admitted();
     const { target, cleanup } = render(client);
     try {
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
       buttonByName(target, 'Want to know more')!.click();
       await vi.waitFor(() => expect(target.textContent).toMatch(/Key accepted/));
       expect(target.textContent).toMatch(/Front: public profile/);
@@ -396,7 +402,7 @@ describe('forum discovery', () => {
       expect(target.textContent).toMatch(/Your matching rules stay private/);
       expect(target.textContent).not.toMatch(/raw key/i);
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -429,7 +435,7 @@ describe('forum discovery', () => {
       // available for look-back: only the accepted seed exchange says so.
       expect(target.textContent?.match(/look back at them/g)?.length ?? 0).toBe(1);
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -443,7 +449,7 @@ describe('forum discovery', () => {
       await vi.waitFor(() => expect(target.textContent).toMatch(/Not a match on: age/));
       expect(target.textContent).not.toMatch(/Reason:/);
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -452,7 +458,7 @@ describe('forum discovery', () => {
     const spy = vi.spyOn(client, 'sendWave');
     const { target, cleanup } = render(client);
     try {
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
       buttonByName(target, 'Write first wave')!.click();
       await tick();
       await fill(target, 'wave-member-ana', 'Hello from the forum!');
@@ -463,7 +469,7 @@ describe('forum discovery', () => {
       expect(spy).toHaveBeenCalledTimes(1);
       expect(spy).toHaveBeenCalledWith('member-ana', 'Hello from the forum!');
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -471,12 +477,12 @@ describe('forum discovery', () => {
     const client = await admitted();
     const { target, cleanup } = render(client);
     try {
-      await vi.waitFor(() => expect(target.textContent).toMatch(/tom-cooks/));
+      await vi.waitFor(() => expect(cardByHandle(target, 'tom-cooks')).not.toBeNull());
       await client.blockMember('member-tom');
-      await vi.waitFor(() => expect(target.textContent).not.toMatch(/tom-cooks/));
-      expect(target.textContent).toMatch(/ana-walks/);
+      await vi.waitFor(() => expect(cardByHandle(target, 'ana-walks')).not.toBeNull());
+      expect(cardByHandle(target, 'tom-cooks')).toBeNull();
     } finally {
-      cleanup();
+      await cleanup();
     }
   });
 
@@ -489,31 +495,31 @@ describe('forum discovery', () => {
       await vi.waitFor(() => expect(first.target.querySelector('[role="alert"]')).not.toBeNull());
       expect(first.target.textContent).toMatch(/Fixture failure/);
     } finally {
-      first.cleanup();
+      await first.cleanup();
     }
 
     const failingKey = await admitted({ failActions: ['requestPrivateKey'] });
     const second = render(failingKey);
     try {
-      await vi.waitFor(() => expect(second.target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(cardByHandle(second.target, 'ana-walks')).not.toBeNull());
       buttonByName(second.target, 'Want to know more')!.click();
       await vi.waitFor(() => expect(second.target.querySelector('[role="alert"]')).not.toBeNull());
       expect(second.target.textContent).toMatch(/Fixture failure/);
     } finally {
-      second.cleanup();
+      await second.cleanup();
     }
 
     const failingWave = await admitted({ failActions: ['sendWave'] });
     const third = render(failingWave);
     try {
-      await vi.waitFor(() => expect(third.target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(cardByHandle(third.target, 'ana-walks')).not.toBeNull());
       buttonByName(third.target, 'Write first wave')!.click();
       await tick();
       await fill(third.target, 'wave-member-ana', 'Hello!');
       buttonByName(third.target, 'Send wave')!.click();
       await vi.waitFor(() => expect(third.target.textContent).toMatch(/Fixture failure/));
     } finally {
-      third.cleanup();
+      await third.cleanup();
     }
   });
 });

@@ -56,12 +56,12 @@
   <div class="top">
     <div>
       <h3><button class="link" onclick={() => onopen?.(group.id)}>{group.name}</button></h3>
-      <p class="meta">{group.size} {membersLabel}</p>
+      <p class="meta">{`${group.size} ${membersLabel}`}</p>
     </div>
     <LevelBadge level={group.level} labels={levelLabels} />
   </div>
   <p>{group.description}</p>
-  <p class="next"><strong>{nextLabel}:</strong> {group.whatChangesNext}</p>
+  <p class="next"><strong>{`${nextLabel}:`}</strong>{` ${group.whatChangesNext}`}</p>
   {#if group.band}
     <dl class="band">
       <div><dt>{notificationsLabel}</dt><dd>{group.band.notifications}</dd></div>
@@ -70,15 +70,15 @@
     </dl>
   {/if}
   {#if group.newcomerHistory}
-    <p class="history"><strong>{historyLabel}:</strong> {group.newcomerHistory}</p>
+    <p class="history"><strong>{`${historyLabel}:`}</strong>{` ${group.newcomerHistory}`}</p>
   {/if}
   {#if group.opening}
-    <p class="opening"><strong>{openingLabel}:</strong> {group.opening.progress} {group.opening.deadlineLabel}</p>
+    <p class="opening"><strong>{`${openingLabel}:`}</strong>{` ${group.opening.progress} ${group.opening.deadlineLabel}`}</p>
   {/if}
   {#if showSeat}
-    <p class="seat"><strong>{seatLabel}:</strong> {group.seatBudget?.label}</p>
+    <p class="seat"><strong>{`${seatLabel}:`}</strong>{` ${group.seatBudget!.label}`}</p>
   {/if}
-  {#if group.suggestion}<p class="suggestion"><strong>{suggestionLabel}:</strong> {group.suggestion}</p>{/if}
+  {#if group.suggestion}<p class="suggestion"><strong>{`${suggestionLabel}:`}</strong>{` ${group.suggestion}`}</p>{/if}
   <div class="actions">
     {#if group.joined}
       <span class="joined">{joinedLabel}</span>

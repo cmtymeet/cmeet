@@ -32,19 +32,19 @@
 <div class="field">
   <label for={id}>{label}{#if required} <span aria-hidden="true">*</span>{/if}</label>
   {#if choices}
-    <select {id} value={String(value ?? '')} onchange={handle} {required} aria-describedby={describedby} aria-invalid={error ? 'true' : undefined}>
+    <select {id} value={String(value)} onchange={handle} {required} aria-describedby={describedby} aria-invalid={error ? 'true' : undefined}>
       <option value="">Choose…</option>
       {#each choices as choice}<option value={choice}>{choice}</option>{/each}
     </select>
   {:else if multiline}
-    <textarea {id} value={String(value ?? '')} oninput={handle} rows="3" {required} {maxlength} {placeholder}
+    <textarea {id} value={String(value)} oninput={handle} rows="3" {required} {maxlength} {placeholder}
       aria-describedby={describedby} aria-invalid={error ? 'true' : undefined}></textarea>
   {:else}
-    <input {id} {type} value={value ?? ''} oninput={handle} {required} {min} {max} {maxlength} {placeholder}
+    <input {id} {type} {value} oninput={handle} {required} {min} {max} {maxlength} {placeholder}
       aria-describedby={describedby} aria-invalid={error ? 'true' : undefined} />
   {/if}
-  {#if help}<p id="{id}-help" class="help">{help}</p>{/if}
-  {#if error}<p id="{id}-error" class="error" role="alert">{error}</p>{/if}
+  {#if help}<p id={`${id}-help`} class="help">{help}</p>{/if}
+  {#if error}<p id={`${id}-error`} class="error" role="alert">{error}</p>{/if}
 </div>
 
 <style>

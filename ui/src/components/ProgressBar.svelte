@@ -8,7 +8,7 @@
 </script>
 
 <div class="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={label}>
-  <div class="bar" style="width: {pct}%"></div>
+  <div class="bar" style:width={`${pct}%`}></div>
 </div>
 
 <style>

@@ -30,7 +30,7 @@
     {#if onpunish}<button class="btn danger" disabled={disabled || wave.state !== 'pending' || wave.releaseState !== 'released'} onclick={() => onpunish?.(wave.id)}>{punishLabel}</button>{/if}
   </div>
   {#if onpunish}<p class="note">{punishNote}</p>{/if}
-  {#if wave.state !== 'pending'}<p class="state">Status: {wave.state}</p>{/if}
+  {#if wave.state !== 'pending'}<p class="state">{`Status: ${wave.state}`}</p>{/if}
 </article>
 
 <style>
