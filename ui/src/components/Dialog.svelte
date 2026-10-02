@@ -14,14 +14,10 @@
   let { open, labelledBy, describedBy, onclose, children }: Props = $props();
 
   let dialogEl: HTMLDialogElement | undefined = $state();
-  // Dedupe user requests per open cycle. Plain (non-reactive) state keeps
-  // the effect below keyed only on `open` and the bound dialog element.
-  let requested = false;
 
   $effect(() => {
     const node = dialogEl;
     if (!node || !open) return;
-    requested = false;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (!node.open) node.showModal();
     return () => {
@@ -31,8 +27,10 @@
   });
 
   function requestClose() {
-    if (!open || requested || !onclose) return;
-    requested = true;
+    // No dedupe: the parent owns `open` and may keep the dialog mounted to
+    // refuse a dismissal (e.g. busy). Every Escape/backdrop request must
+    // reach onclose so a later retry still works.
+    if (!open || !onclose) return;
     onclose();
   }
 
