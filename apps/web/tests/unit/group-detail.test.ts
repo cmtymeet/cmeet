@@ -312,8 +312,10 @@ describe('group detail conversation', () => {
     const base = createDevCmsg();
     // The garden read lands last; only the token guard keeps it from winning.
     const client = withDecreasingGroupsDelay(base, 120, 20);
+    const reads = vi.spyOn(client, 'groups');
     const { target, route, cleanup } = renderHarness(client, 'group-garden');
     try {
+      await vi.waitFor(() => expect(reads).toHaveBeenCalledTimes(1));
       route.set('group-choir');
       await tick();
       await vi.waitFor(() => expect(target.querySelector('h1')?.textContent).toBe('Evening choir'));
@@ -328,9 +330,12 @@ describe('group detail conversation', () => {
 
   it('prefers a newer groups event over a stale in-flight load', async () => {
     const base = createDevCmsg();
+    await base.joinGroup('group-choir');
     const client = withGroupsDelay(base, 60);
+    const reads = vi.spyOn(client, 'groups');
     const { target, route, cleanup } = renderHarness(client, 'group-garden');
     try {
+      await vi.waitFor(() => expect(reads).toHaveBeenCalledTimes(1));
       route.set('group-choir');
       await tick();
       await base.proposeFork({
@@ -371,4 +376,27 @@ describe('group detail conversation', () => {
     await tick();
     expect(document.body.contains(target)).toBe(false);
   });
+});
+
+
+it('unlocks after a newer group event supersedes a mutation refresh', async () => {
+  const base = createDevCmsg({ groups: [detailGroup()] });
+  let reads = 0;
+  let release!: (value: GroupView[]) => void;
+  const client = { ...base, groups: async () => {
+    if (++reads === 2) return new Promise<GroupView[]>(resolve => { release = resolve; });
+    return base.groups();
+  } };
+  const { target, cleanup } = render(client, 'group-detail');
+  try {
+    await vi.waitFor(() => expect(target.querySelector('#group-composer')).not.toBeNull());
+    await fill(target, 'group-composer', 'Hello');
+    buttonByName(target, 'Send')!.click();
+    await vi.waitFor(() => expect(reads).toBe(2));
+    const stale = await base.groups();
+    await base.proposeFork({ groupId: 'group-detail', kind: 'split', label: 'New proposal', detail: 'A quieter group' });
+    release(stale);
+    await vi.waitFor(() => expect(buttonByName(target, 'Send')?.disabled).toBe(false));
+    expect(target.textContent).toContain('New proposal');
+  } finally { cleanup(); await base.disconnect(); }
 });

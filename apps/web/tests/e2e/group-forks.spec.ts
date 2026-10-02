@@ -10,13 +10,18 @@ async function join(page: import('@playwright/test').Page) {
   await page.getByLabel(/Choose a handle/).fill('fork-member');
   await page.getByRole('button', { name: 'Continue to join' }).click();
   await expect(page.getByRole('heading', { name: 'Lobby' })).toBeVisible();
+  await page.getByRole('link', { name: 'Profile', exact: true }).click();
+  await page.locator('#profile-age').fill('34');
+  await page.locator('#profile-neighbourhood').selectOption('North');
+  await page.getByRole('button', { name: 'Save profile' }).click();
+  await expect(page.getByText('Profile published and checked.')).toBeVisible();
 }
 
 // Group conversation with consent forks: level, band, handle roster, consent, welcome, suggestion.
 test('group detail proposes and consents forks without moving anyone', async ({ page }) => {
   await join(page);
 
-  await page.goto('/#/groups/group-garden');
+  await page.evaluate(() => { window.location.hash = '#/groups/group-garden'; });
   await expect(page.getByRole('heading', { name: 'Community garden' })).toBeVisible();
   await expect(page.getByText('Circle', { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/What changes next/)).toBeVisible();
@@ -57,11 +62,11 @@ test('group detail proposes and consents forks without moving anyone', async ({ 
   // Consent is explicit; nonmovers keep the original group.
   await page.getByRole('button', { name: 'Consent to this fork' }).click();
   await expect(page.getByText(/Consent recorded in/)).toBeVisible();
-  await expect(page.getByText(/Nonmovers keep the original group/)).toBeVisible();
+  await expect(page.getByText(/Nonmovers keep the original group/).first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Community garden' })).toBeVisible();
 
   // Suggestions dismiss cleanly on the opening room; the welcome prompt stays visible.
-  await page.goto('/#/groups/group-opening');
+  await page.evaluate(() => { window.location.hash = '#/groups/group-opening'; });
   await expect(page.getByRole('heading', { name: 'Newcomers opening' })).toBeVisible();
   await expect(page.getByText(/Welcome! Say hello/)).toBeVisible();
   await expect(page.getByText(/Invite people who would enjoy/)).toBeVisible();

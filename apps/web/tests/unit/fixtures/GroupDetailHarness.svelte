@@ -1,7 +1,7 @@
 <script lang="ts">
   import GroupDetail from '../../../src/views/GroupDetail.svelte';
   import type { Writable } from 'svelte/store';
-  import type { CmsgClient } from '../../../../core/src/cmsg.js';
+  import type { CmsgClient } from '../../../../../core/src/cmsg.js';
 
   // Test-only wrapper: a single mounted GroupDetail whose route id follows a
   // store, so prop-switch races run against one live instance.

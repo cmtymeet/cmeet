@@ -19,6 +19,7 @@
   let allGroups: GroupView[] = $state([]);
   let contactList: Contact[] = $state([]);
   let error = $state('');
+  let loadError = $state('');
   let loading = $state(true);
   let sending = $state(false);
   let proposing = $state(false);
@@ -35,21 +36,34 @@
   let forkTarget = $state('');
 
   // Route/teardown epoch: bumped on every id change, on unmount, and when a
-  // groups event drops our group. Every async continuation checks it first.
+  // groups event drops our group. Mutation lifecycles check it before touching
+  // busy flags, notes or errors, so a newer route's state is never cleared.
   let generation = 0;
-  // Newer-event marker: bumped on every groups event so a stale in-flight
-  // load can never overwrite event-delivered state.
+  // Newer-event marker: bumped on every groups event. It guards applying stale
+  // DATA only and never extends a mutation lifecycle.
   let eventSeq = 0;
   let alive = false;
 
-  function isLive(token: number, target: string, seen: number): boolean {
-    return alive && token === generation && target === id && seen === eventSeq;
+  // Same mounted route still live (mutation lifecycle guard).
+  function routeLive(token: number, target: string): boolean {
+    return alive && token === generation && target === id;
   }
+
+  // Same route with no newer event since `seen` (stale-data guard).
+  function dataLive(token: number, target: string, seen: number): boolean {
+    return routeLive(token, target) && seen === eventSeq;
+  }
+
+  // One mutation at a time: a second action while any runs is ignored, and all
+  // controls below render this lock through their disabled state.
+  const anyBusy = $derived(
+    sending || proposing || consenting !== null || welcoming || dismissing,
+  );
 
   function handleFor(memberId: string): string {
     const member = group?.members?.find((m) => m.id === memberId);
     if (member) return member.handle;
-    return contactList.find((c) => c.memberId === memberId)?.handle ?? memberId;
+    return contactList.find((c) => c.memberId === memberId)?.handle ?? s.unknownMember;
   }
 
   const selectedHandles: string[] = $derived(selected.map((memberId) => handleFor(memberId)));
@@ -65,16 +79,16 @@
     try {
       list = await client.groups();
     } catch (e) {
-      if (!isLive(token, target, seen)) return;
-      error = e instanceof Error ? e.message : s.loadFailed;
+      if (!dataLive(token, target, seen)) return;
+      loadError = e instanceof Error ? e.message : s.loadFailed;
       loading = false;
       return;
     }
-    if (!isLive(token, target, seen)) return;
+    if (!dataLive(token, target, seen)) return;
     allGroups = list;
     const next = list.find((g) => g.id === target) ?? null;
     group = next;
-    if (!next) error = s.unavailable;
+    if (!next) loadError = s.unavailable;
     loading = false;
     let contacts: Contact[] = [];
     try {
@@ -82,29 +96,28 @@
     } catch {
       return;
     }
-    if (!isLive(token, target, seen)) return;
+    if (!dataLive(token, target, seen)) return;
     contactList = contacts;
   }
 
-  async function refreshInto(token: number, target: string, seen: number): Promise<GroupView | null> {
+  async function refreshInto(token: number, target: string, seen: number): Promise<void> {
     let list: GroupView[];
     try {
       list = await client.groups();
     } catch {
-      return null;
+      return;
     }
-    if (!isLive(token, target, seen)) return null;
+    if (!dataLive(token, target, seen)) return;
     allGroups = list;
     const next = list.find((g) => g.id === target) ?? null;
     if (next) {
       group = next;
-      return next;
+      return;
     }
     generation += 1;
     group = null;
     loading = false;
-    error = s.unavailable;
-    return null;
+    loadError = s.unavailable;
   }
 
   $effect(() => {
@@ -113,6 +126,7 @@
     const token = generation;
     const seen = eventSeq;
     error = '';
+    loadError = '';
     forkNote = '';
     welcomeNote = '';
     group = null;
@@ -135,19 +149,23 @@
   onMount(() => {
     alive = true;
     const off = client.subscribe((event) => {
-      if (event.type !== 'groups') return;
+      if (!alive || event.type !== 'groups') return;
       const target = id;
       allGroups = event.groups;
       const found = event.groups.find((g) => g.id === target);
       eventSeq += 1;
       if (found) {
         group = found;
+        loading = false;
+        loadError = '';
       } else {
         // Membership invalidated: clear now and stop any old load restoring it.
         generation += 1;
         group = null;
         loading = false;
-        error = s.unavailable;
+        loadError = s.unavailable;
+        sending = proposing = welcoming = dismissing = false;
+        consenting = null;
       }
     });
     return () => {
@@ -160,31 +178,29 @@
   async function send() {
     const target = id;
     const token = generation;
+    if (anyBusy) return;
     const text = draft.trim();
-    if (!text || !group || sending) return;
+    if (!text || !group) return;
     sending = true;
     error = '';
     try {
       await client.sendGroupMessage(target, text);
+      if (!routeLive(token, target)) return;
+      // Locked during send, so only clear text this request actually delivered.
+      if (draft.trim() === text) draft = '';
+      await refreshInto(token, target, eventSeq);
     } catch (e) {
-      if (!isLive(token, target, eventSeq)) return;
-      error = e instanceof Error ? e.message : s.sendFailed;
-      sending = false;
-      return;
+      if (routeLive(token, target)) error = e instanceof Error ? e.message : s.sendFailed;
+    } finally {
+      if (routeLive(token, target)) sending = false;
     }
-    if (!isLive(token, target, eventSeq)) return;
-    // Locked during send, so only clear text this request actually delivered.
-    if (draft.trim() === text) draft = '';
-    const seen = eventSeq;
-    await refreshInto(token, target, seen);
-    if (!isLive(token, target, seen)) return;
-    sending = false;
   }
 
   async function propose() {
     const target = id;
     const token = generation;
-    if (!group || proposing) return;
+    if (anyBusy) return;
+    if (!group) return;
     const label = forkLabel.trim();
     if (!label) {
       error = s.emptyProposal;
@@ -196,104 +212,94 @@
     proposing = true;
     error = '';
     forkNote = '';
+    const seen = eventSeq;
     try {
       const proposal: GroupForkProposal = { groupId: target, kind: forkKind, label, detail };
       if (roster.length > 0) proposal.memberIds = roster;
       if (wantTarget) proposal.targetGroupId = wantTarget;
-      await client.proposeFork(proposal);
-    } catch (e) {
-      if (!isLive(token, target, eventSeq)) return;
-      error = e instanceof Error ? e.message : s.proposeFailed;
-      proposing = false;
-      return;
-    }
-    if (!isLive(token, target, eventSeq)) return;
-    const seen = eventSeq;
-    const refreshed = await refreshInto(token, target, seen);
-    if (!isLive(token, target, seen)) return;
-    const listed = refreshed?.forks?.some((f) => f.label === label && f.detail === detail) ?? false;
-    forkNote = listed ? s.proposalRecorded : s.proposalUnlisted;
-    if (listed) {
+      // Authoritative result: the returned view proves the recorded proposal.
+      const updated = await client.proposeFork(proposal);
+      if (!routeLive(token, target)) return;
+      if (seen === eventSeq) {
+        // No newer event arrived; apply the returned view directly.
+        group = updated;
+        allGroups = allGroups.some((g) => g.id === target)
+          ? allGroups.map((g) => (g.id === target ? updated : g))
+          : [...allGroups, updated];
+      }
+      // Fields were locked during the request, so clearing cannot drop edits.
+      forkNote = s.proposalRecorded;
       forkLabel = '';
       forkDetail = '';
       selected = [];
       forkTarget = '';
+    } catch (e) {
+      if (routeLive(token, target)) error = e instanceof Error ? e.message : s.proposeFailed;
+    } finally {
+      if (routeLive(token, target)) proposing = false;
     }
-    proposing = false;
   }
 
   async function consent(forkId: string) {
     const target = id;
     const token = generation;
-    if (!group || consenting) return;
+    if (anyBusy) return;
+    if (!group) return;
     consenting = forkId;
     error = '';
     forkNote = '';
-    let moved: GroupView;
     try {
-      moved = await client.consentFork(target, forkId);
+      // Authoritative result: the returned group proves the consent outcome.
+      const moved = await client.consentFork(target, forkId);
+      if (!routeLive(token, target)) return;
+      forkNote = `${s.consentRecordedIn} “${moved.name}”. ${s.nonmoversNote}`;
+      await refreshInto(token, target, eventSeq);
     } catch (e) {
-      if (!isLive(token, target, eventSeq)) return;
-      error = e instanceof Error ? e.message : s.consentFailed;
-      consenting = null;
-      return;
+      if (routeLive(token, target)) error = e instanceof Error ? e.message : s.consentFailed;
+    } finally {
+      if (routeLive(token, target)) consenting = null;
     }
-    if (!isLive(token, target, eventSeq)) return;
-    const seen = eventSeq;
-    const refreshed = await refreshInto(token, target, seen);
-    if (!isLive(token, target, seen)) return;
-    const confirmed = refreshed?.forks?.some((f) => f.id === forkId && f.consented) ?? false;
-    forkNote = confirmed
-      ? `${s.consentRecordedIn} “${moved.name}”. ${s.nonmoversNote}`
-      : s.proposalUnlisted;
-    consenting = null;
   }
 
   async function welcome() {
     const target = id;
     const token = generation;
-    if (!group || welcoming) return;
+    if (anyBusy) return;
+    if (!group) return;
     welcoming = true;
     error = '';
     welcomeNote = '';
-    let reply: string;
     try {
-      reply = await client.welcomeMember(target);
+      const reply = await client.welcomeMember(target);
+      if (!routeLive(token, target)) return;
+      welcomeNote = reply;
     } catch (e) {
-      if (!isLive(token, target, eventSeq)) return;
-      error = e instanceof Error ? e.message : s.welcomeFailed;
-      welcoming = false;
-      return;
+      if (routeLive(token, target)) error = e instanceof Error ? e.message : s.welcomeFailed;
+    } finally {
+      if (routeLive(token, target)) welcoming = false;
     }
-    if (!isLive(token, target, eventSeq)) return;
-    welcomeNote = reply;
-    welcoming = false;
   }
 
   async function dismiss() {
     const target = id;
     const token = generation;
-    if (!group || dismissing) return;
+    if (!group || anyBusy) return;
     dismissing = true;
     error = '';
     try {
       await client.dismissGroupSuggestion(target);
+      if (routeLive(token, target)) await refreshInto(token, target, eventSeq);
     } catch (e) {
-      if (!isLive(token, target, eventSeq)) return;
-      error = e instanceof Error ? e.message : s.dismissFailed;
-      dismissing = false;
-      return;
+      if (routeLive(token, target)) error = e instanceof Error ? e.message : s.dismissFailed;
+    } finally {
+      if (routeLive(token, target)) dismissing = false;
     }
-    if (!isLive(token, target, eventSeq)) return;
-    const seen = eventSeq;
-    await refreshInto(token, target, seen);
-    if (!isLive(token, target, seen)) return;
-    dismissing = false;
   }
+
 </script>
 
 <section class="page group-detail" aria-labelledby="group-title">
-  {#if error}<Notice tone="error">{error}</Notice>{/if}
+  {#if error || loadError}<Notice tone="error">{error || loadError}</Notice>{/if}
   {#if group}
     <p><a href="#/groups">← {s.backToGroups}</a></p>
     <h1 id="group-title">{group.name}</h1>
@@ -329,7 +335,7 @@
     {#if group.suggestion}
       <Notice tone="info">{group.suggestion}</Notice>
       <div class="row">
-        <Button onclick={() => void dismiss()} busy={dismissing} busyLabel={s.dismissBusy}>
+        <Button disabled={anyBusy} onclick={() => void dismiss()} busy={dismissing} busyLabel={s.dismissBusy}>
           {s.suggestionDismiss}
         </Button>
       </div>
@@ -340,7 +346,7 @@
       <h2>{s.welcomeAction}</h2>
       <p>{group.welcomePrompt}</p>
       <div class="row">
-        <Button onclick={() => void welcome()} busy={welcoming} busyLabel={s.welcomeBusy}>
+        <Button disabled={anyBusy} onclick={() => void welcome()} busy={welcoming} busyLabel={s.welcomeBusy}>
           {s.welcomeAction}
         </Button>
       </div>
@@ -363,9 +369,9 @@
           oninput={(e) => (draft = e.currentTarget.value)}
           placeholder={s.composerLabel}
           autocomplete="off"
-          disabled={sending}
+          disabled={anyBusy}
         />
-        <Button type="submit" variant="primary" busy={sending} busyLabel={s.sendBusy}>{s.send}</Button>
+        <Button disabled={anyBusy} type="submit" variant="primary" busy={sending} busyLabel={s.sendBusy}>{s.send}</Button>
       </form>
       <p class="muted">{s.directContactNote}</p>
 
@@ -389,6 +395,7 @@
                 <p class="muted">{s.consentedLabel}. {s.nonmoversNote}</p>
               {:else}
                 <Button
+                  disabled={anyBusy}
                   onclick={() => void consent(fork.id)}
                   busy={consenting === fork.id}
                   busyLabel={s.consentBusy}
@@ -414,7 +421,7 @@
           <select
             id="fork-kind"
             value={forkKind}
-            disabled={proposing}
+            disabled={anyBusy}
             onchange={(e) => (forkKind = e.currentTarget.value as GroupForkProposal['kind'])}
           >
             <option value="add">{s.kinds.add}</option>
@@ -433,7 +440,7 @@
             oninput={(e) => (forkLabel = e.currentTarget.value)}
             placeholder={s.namePlaceholder}
             autocomplete="off"
-            disabled={proposing}
+            disabled={anyBusy}
           />
         </div>
         <div class="field">
@@ -444,11 +451,11 @@
             oninput={(e) => (forkDetail = e.currentTarget.value)}
             placeholder={s.detailPlaceholder}
             rows="2"
-            disabled={proposing}
+            disabled={anyBusy}
           ></textarea>
         </div>
         {#if group.members && group.members.length > 0}
-          <fieldset class="field" disabled={proposing}>
+          <fieldset class="field" disabled={anyBusy}>
             <legend>{s.rosterLabel}</legend>
             <p class="muted">{s.rosterHint}</p>
             {#each group.members as member (member.id)}
@@ -474,7 +481,7 @@
             <select
               id="fork-target"
               value={forkTarget}
-              disabled={proposing}
+              disabled={anyBusy}
               onchange={(e) => (forkTarget = e.currentTarget.value)}
             >
               <option value="">{s.targetNone}</option>
@@ -485,7 +492,7 @@
             <p class="muted">{s.targetHint}</p>
           </div>
         {/if}
-        <Button type="submit" variant="primary" busy={proposing} busyLabel={s.proposeBusy}>
+        <Button disabled={anyBusy} type="submit" variant="primary" busy={proposing} busyLabel={s.proposeBusy}>
           {s.proposeAction}
         </Button>
       </form>
@@ -493,7 +500,7 @@
       <p>{s.hiddenNote}</p>
       <p class="muted">{s.directContactNote}</p>
     {/if}
-  {:else if !error && loading}
+  {:else if !error && !loadError && loading}
     <p aria-live="polite">{s.loading}</p>
   {/if}
 </section>

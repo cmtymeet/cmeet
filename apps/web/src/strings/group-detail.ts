@@ -34,6 +34,7 @@ export const groupDetailStrings = {
     'Each fork is a proposal. Nobody moves by proposing. Every mover consents separately; nonmovers keep the original group.',
   noForks: 'No fork proposals yet.',
   proposedRosterLabel: 'Proposed roster',
+  unknownMember: 'Member unavailable',
   emptyRoster: 'The roster is empty.',
   consentAction: 'Consent to this fork',
   consentBusy: 'Recording…',
@@ -67,8 +68,6 @@ export const groupDetailStrings = {
   emptyProposal: 'Describe the fork first.',
   proposalRecorded:
     'Proposal recorded. Nobody has moved. Each mover still chooses whether to consent.',
-  proposalUnlisted:
-    'The group updated, but the proposal is not listed. Wait a moment before trying again.',
   nonmoversNote: 'Nonmovers keep the original group.',
   seatLabel: 'Seat budget',
   openingProgressLabel: 'Opening progress',
