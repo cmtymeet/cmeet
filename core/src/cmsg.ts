@@ -462,7 +462,27 @@ export interface RootCommunityView {
 /* Events                                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Status of the passkey ceremony, which runs only in a short top-level pop-up
+ * at the vault origin. The UI receives this status and nothing else: never
+ * a credential, a PRF output or any key material.
+ */
+export type CeremonyState =
+  | 'idle'
+  | 'continue-needed'
+  | 'popup-open'
+  | 'done'
+  | 'cancelled'
+  | 'blocked'
+  | 'timeout'
+  | 'failed';
+
+export interface CeremonyStatus {
+  state: CeremonyState;
+}
+
 export type CmsgEvent =
+  | { type: 'ceremony'; status: CeremonyStatus }
   | { type: 'connection'; status: ConnectionStatus }
   | { type: 'lobby'; lobby: LobbyState }
   | { type: 'matches'; page: MatchPage; reset: boolean }

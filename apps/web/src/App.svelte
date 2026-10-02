@@ -19,6 +19,7 @@
   import AdminSchema from './views/AdminSchema.svelte';
   import Root from './views/Root.svelte';
   import Settings from './views/Settings.svelte';
+  import VaultStatus from './views/VaultStatus.svelte';
 
   interface Props {
     session: Session;
@@ -97,6 +98,7 @@
     {/if}
     <a href="#/settings" aria-current={navCurrent('settings')}>Settings</a>
   </nav>
+  <VaultStatus client={session.client} />
   <main id="content" tabindex="-1" class="layout">
     {#key routeHref(route)}
     {#if needsLobby}
