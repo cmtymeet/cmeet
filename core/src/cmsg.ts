@@ -99,6 +99,13 @@ export interface SchemaField {
   visibility: FieldVisibility;
   required: boolean;
   filterable: boolean;
+  /**
+   * Optional public display-name flag. Absence means false. Only a community
+   * admin flagging an optional public text field enables it; the backend
+   * (cmsg->crgs/cgrd) remains the authority for enforcement and validation.
+   * The frontend never enforces uniqueness or handle policy.
+   */
+  shownAsName?: boolean;
   /** Allowed values for choice fields. */
   choices?: string[];
   /** Numeric bounds for number fields. */
@@ -165,10 +172,19 @@ export interface DiscoveryFilter {
 export interface PublicCard {
   memberId: MemberId;
   handle: Handle;
+  /**
+   * Optional cmsg-supplied public display name. Never derived by the
+   * frontend from card.values and never a private field. Shown only as
+   * `displayName · @handle`; absence means handle-only.
+   */
+  displayName?: string;
   /** Typed public values; never pictures. */
   values: ProfileValues;
   online: boolean;
-  /** Relative shares only, after quorum; null before quorum. */
+  /**
+   * Reserved record port. The presentation layer never renders or computes
+   * this; UI must ignore it (even when non-null).
+   */
   record: { accepted: number; declined: number; punished: number } | null;
 }
 
@@ -192,6 +208,7 @@ export interface ProfileExchange {
   id: string;
   peer: MemberId;
   handle: Handle;
+  displayName?: string;
   direction: 'incoming' | 'outgoing';
   result: KeyRequestResult;
 }
@@ -211,6 +228,7 @@ export interface Wave {
   id: string;
   from: MemberId;
   fromHandle: Handle;
+  fromDisplayName?: string;
   to: MemberId;
   message: string;
   state: WaveState;
@@ -241,6 +259,7 @@ export type RelationState =
 export interface Contact {
   memberId: MemberId;
   handle: Handle;
+  displayName?: string;
   relation: RelationState;
   /** Peer-to-peer presence; never stored in the forum. */
   online: boolean;
@@ -267,6 +286,7 @@ export interface Thread {
   id: string;
   peer: MemberId;
   peerHandle: Handle;
+  peerDisplayName?: string;
   messages: ChatMessage[];
   /** Unmetered once established. */
   established: boolean;
@@ -308,7 +328,7 @@ export interface GroupView {
   lineage?: string[];
   seatBudget?: { enabled: boolean; label: string };
   welcomePrompt?: string;
-  members?: { id: string; handle: string }[];
+  members?: { id: string; handle: string; displayName?: string }[];
   forks?: ForkView[];
 }
 

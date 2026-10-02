@@ -21,3 +21,9 @@ Inherited settings and explicit empty overrides are distinct responses.
 No DTO or fixture claims backend agreement. Replace this handwritten contract
 with generated types once the cmsg definition exists, and verify every facade
 against that definition before enabling a production runtime.
+
+Community display names are optional port data. `SchemaField.shownAsName`
+marks a public name field; member DTOs carry the validated public name when
+enabled. Presentation always pairs it with the handle. Handle changes,
+reservation periods, forced changes and name validation stay in crgs/cgrd
+through cmsg. Reserved record data and punishment are disabled in MVP views.

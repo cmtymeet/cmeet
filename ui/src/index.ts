@@ -13,3 +13,4 @@ export { default as GroupCard } from './components/GroupCard.svelte';
 export { default as SegmentedControl } from './components/SegmentedControl.svelte';
 export { en } from './i18n/en.js';
 export type { Strings } from './i18n/en.js';
+export { memberName } from './member-name.js';
