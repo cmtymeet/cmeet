@@ -9,6 +9,14 @@ import type {
 // build stays unavailable until the generated browser cmsg client is wired.
 export async function createClient(): Promise<CmsgClient | null> {
   if (import.meta.env.DEV) {
+    // Opt-in multi-origin harness: the development adapter runs inside the vault
+    // frame at vault.<community>.<base> and this page talks to it over one port.
+    if (new URLSearchParams(window.location.search).get('dev-vault') === '1') {
+      const { resolveVaultOrigins } = await import('./browser/origins.js');
+      const { createHarnessSession } = await import('./browser/harness/client.js');
+      const origins = resolveVaultOrigins(window.location.origin, { allowInsecureLocal: true });
+      return (await createHarnessSession({ origins, timeoutMillis: 120_000 })).client;
+    }
     const { createDevCmsg } = await import('../../../core/src/dev-adapter.js');
     const params = new URLSearchParams(window.location.search);
     const delay = Number(params.get('dev-connect-delay'));

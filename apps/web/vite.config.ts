@@ -3,11 +3,12 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { pwaShellPlugin } from './build/pwa.js';
+import { cspPlugin } from './build/csp.js';
 
 const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 export default defineConfig({
-  plugins: [svelte(), pwaShellPlugin()],
+  plugins: [svelte(), cspPlugin(process.env.CMEET_VAULT_ORIGIN), pwaShellPlugin()],
   base: './',
   server: {
     host: '127.0.0.1',

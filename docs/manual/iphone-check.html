@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src https: http://*.localhost:*; connect-src 'none'">
+<title>cmeet browser separation check</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { margin: 0; padding: 1rem; max-width: 40rem; margin-inline: auto; line-height: 1.45; }
+  h1 { font-size: 1.25rem; }
+  button { font: inherit; padding: 0.7rem 1rem; min-height: 2.75rem; margin: 0.25rem 0.25rem 0.25rem 0; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { border-bottom: 1px solid #8884; text-align: left; padding: 0.35rem 0.25rem; vertical-align: top; }
+  .ok { color: #1b7a3a; } .bad { color: #b3261e; } .wait { color: #8a6100; }
+  iframe { width: 100%; height: 9rem; border: 1px solid #8886; }
+</style>
+</head>
+<body>
+<h1>cmeet browser separation check</h1>
+<p id="intro"></p>
+<div id="app"></div>
+<script>
+(function () {
+  'use strict';
+  // Diagnostic page only. It performs NO passkey ceremony and sends nothing
+  // anywhere. It checks the plumbing: top-level UI origin, vault frame origin,
+  // the pop-up window and the same-origin hand-back. Nothing here proves a
+  // real passkey login. It never shows or stores identifiers or credentials.
+  var PROTOCOL = 'cmeet-manual-check-1';
+  var params = new URLSearchParams(location.search);
+  var role = params.get('role') || 'ui';
+  var app = document.getElementById('app');
+  var intro = document.getElementById('intro');
+  var isVaultHost = location.hostname.split('.')[0] === 'vault';
+  var memberOrigin = isVaultHost ? location.protocol + '//' + location.host.slice('vault.'.length) : location.origin;
+  var vaultOrigin = isVaultHost ? location.origin : location.protocol + '//vault.' + location.host;
+
+  function el(tag, text, cls) { var n = document.createElement(tag); if (text) n.textContent = text; if (cls) n.className = cls; return n; }
+  function row(table, label, value, cls) {
+    var tr = document.createElement('tr');
+    tr.appendChild(el('th', label)); tr.appendChild(el('td', value, cls)); table.appendChild(tr); return tr.lastChild;
+  }
+  var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+
+  if (role === 'popup') {
+    // Top-level pop-up at the vault origin: reports a status over a same-origin channel and closes.
+    intro.textContent = 'Pop-up window at ' + location.origin;
+    var nonce = params.get('nonce') || '';
+    var done = el('button', 'Report success and close');
+    var cancel = el('button', 'Report cancel and close');
+    function finish(status) {
+      var channel = new BroadcastChannel('cmeet-manual-check');
+      channel.postMessage({ protocol: PROTOCOL, nonce: nonce, status: status });
+      channel.close();
+      window.close();
+    }
+    done.onclick = function () { finish('ok'); };
+    cancel.onclick = function () { finish('cancelled'); };
+    app.appendChild(done); app.appendChild(cancel);
+    app.appendChild(el('p', 'If this window stays open after pressing a button, the browser did not allow closing it. Report that.'));
+    return;
+  }
+
+  if (role === 'frame') {
+    // Vault frame: shows a Continue control (a real click opens the pop-up), forwards only a status to the parent.
+    intro.textContent = 'Vault frame at ' + location.origin;
+    var status = el('p', 'Waiting for your Continue tap.');
+    var go = el('button', 'Continue');
+    var pendingNonce = '';
+    var channel = new BroadcastChannel('cmeet-manual-check');
+    function report(state) { status.textContent = state; try { parent.postMessage({ protocol: PROTOCOL, state: state }, memberOrigin); } catch (e) { /* parent gone */ } }
+    channel.onmessage = function (event) {
+      var d = event.data;
+      if (!d || d.protocol !== PROTOCOL || d.nonce !== pendingNonce || !pendingNonce) return;
+      pendingNonce = '';
+      report(d.status === 'ok' ? 'handed-back' : 'cancelled');
+    };
+    go.onclick = function () {
+      pendingNonce = String(Math.random()).slice(2);
+      var popup = window.open(location.origin + location.pathname + '?role=popup&nonce=' + pendingNonce, 'cmeet-manual-popup', 'popup,width=420,height=520');
+      if (!popup) { report('blocked'); return; }
+      report('popup-open');
+      var timer = setInterval(function () {
+        if (popup.closed) { clearInterval(timer); if (pendingNonce) { pendingNonce = ''; report('closed-early'); } }
+      }, 400);
+    };
+    app.appendChild(status); app.appendChild(go);
+    parent.postMessage({ protocol: PROTOCOL, state: 'frame-ready' }, memberOrigin);
+    return;
+  }
+
+  // role === 'ui': the top-level page at the community origin.
+  if (isVaultHost) {
+    intro.textContent = 'Open this page at the community origin (without "vault."). It opens the vault frame itself.';
+    return;
+  }
+  intro.textContent = 'Top-level page at ' + location.origin + '. It embeds the vault frame at ' + vaultOrigin + ' and tests the pop-up route. Host this same file on both origins.';
+  var table = document.createElement('table');
+  row(table, 'Page origin', location.origin);
+  row(table, 'Vault origin', vaultOrigin);
+  row(table, 'Installed home-screen app', standalone ? 'yes (standalone)' : 'no (browser tab)', standalone ? 'ok' : 'wait');
+  row(table, 'Browser', navigator.userAgent.replace(/\s*\([^)]*\)/g, '').slice(0, 120));
+  row(table, 'Passkeys API present', window.PublicKeyCredential ? 'yes' : 'no', window.PublicKeyCredential ? 'ok' : 'bad');
+  var capabilities = row(table, 'Client capabilities', 'checking...', 'wait');
+  if (window.PublicKeyCredential && PublicKeyCredential.getClientCapabilities) {
+    PublicKeyCredential.getClientCapabilities().then(function (c) {
+      capabilities.textContent = Object.keys(c).filter(function (k) { return c[k]; }).join(', ') || 'none reported'; capabilities.className = 'ok';
+    }, function () { capabilities.textContent = 'not available'; capabilities.className = 'wait'; });
+  } else { capabilities.textContent = 'not reported by this browser'; capabilities.className = 'wait'; }
+  var frameState = row(table, 'Vault frame', 'not started', 'wait');
+  var routeState = row(table, 'Pop-up hand-back', 'not tested', 'wait');
+  app.appendChild(table);
+  var start = el('button', 'Start the vault frame');
+  app.appendChild(start);
+  var frame;
+  start.onclick = function () {
+    if (frame) frame.remove();
+    frame = document.createElement('iframe');
+    frame.title = 'Vault frame';
+    frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox');
+    frame.src = vaultOrigin + location.pathname + '?role=frame';
+    app.appendChild(frame);
+    frameState.textContent = 'loading'; frameState.className = 'wait';
+  };
+  window.addEventListener('message', function (event) {
+    if (event.origin !== vaultOrigin || !frame || event.source !== frame.contentWindow) return;
+    var d = event.data;
+    if (!d || d.protocol !== PROTOCOL) return;
+    if (d.state === 'frame-ready') { frameState.textContent = 'running at the vault origin'; frameState.className = 'ok'; return; }
+    routeState.textContent = d.state;
+    routeState.className = d.state === 'handed-back' ? 'ok' : (d.state === 'popup-open' ? 'wait' : 'bad');
+  });
+  app.appendChild(el('p', 'Tap Continue inside the vault frame, then use the buttons in the pop-up. Statuses: popup-open, handed-back (success), cancelled, closed-early, blocked.'));
+})();
+</script>
+</body>
+</html>

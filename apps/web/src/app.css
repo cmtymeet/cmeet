@@ -75,3 +75,17 @@ button, a, input, select, textarea { touch-action: manipulation; }
 #content:focus { outline: none; }
 @media (max-width: 40rem) { .topnav { position: static; } .page { padding: 0.85rem; } .layout { padding: 0.5rem; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
+
+/* The vault frame stays visible: its Continue control must be a real click
+   inside the vault origin so the pop-up is allowed to open. */
+.vault-frame {
+  position: fixed;
+  inset-inline-end: 0.75rem;
+  inset-block-end: 0.75rem;
+  inline-size: min(22rem, calc(100vw - 1.5rem));
+  block-size: 8rem;
+  border: 1px solid var(--cmeet-line);
+  border-radius: var(--cmeet-radius);
+  background: var(--cmeet-surface);
+  z-index: 10;
+}
