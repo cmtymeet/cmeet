@@ -31,13 +31,12 @@ describe('admin capabilities and isolation', () => {
     await admin.disconnect();
     await expect(admin.adminAccess()).rejects.toThrow('Sign in');
   });
-  it('allows roots to appoint and remove roots and use admin schema in selected communities', async () => {
+  it('allows roots to appoint and remove roots in selected communities', async () => {
     const client = createDevCmsg(); await client.signInRole('root');
     expect((await client.adminAccess('other')).assignableRoles).toContain('root');
     expect((await client.adminSetRole('new-root','root','other')).members.find(m=>m.id==='new-root')?.role).toBe('root');
     expect((await client.adminSetRole('new-root','member','other')).members.find(m=>m.id==='new-root')?.role).toBe('member');
     expect((await client.adminAccess()).members.some(m=>m.id==='new-root')).toBe(false);
-    const schema = await client.adminSchema(); await client.adminSaveSchema(schema);
   });
   it('requires a reason and leaves the replacement name to the member', async () => {
     const client = createDevCmsg(); await join(client); await client.signInRole('admin');

@@ -1266,13 +1266,13 @@ export function createDevCmsg(options: DevAdapterOptions = {}): CmsgClient {
 
     async adminSchema() {
       failIf('adminSchema');
-      if (!roles.has('admin') && !roles.has('root')) throw new Error('Sign in with your passkey as admin first.');
+      if (!roles.has('admin')) throw new Error('Sign in with your passkey as admin first.');
       return structuredClone(schema);
     },
 
     async adminSaveSchema(next: ProfileSchema) {
       failIf('adminSaveSchema');
-      if (!roles.has('admin') && !roles.has('root')) throw new Error('Sign in with your passkey as admin first.');
+      if (!roles.has('admin')) throw new Error('Sign in with your passkey as admin first.');
       if (next.version !== schema.version) throw new Error('The schema changed. Reload it before saving.');
       const keys = new Set<string>();
       for (const field of next.fields) {
