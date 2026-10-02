@@ -22,7 +22,7 @@ export const pwaStrings = {
     'Confirm the prompt.',
   ],
   iosNote:
-    'iPhone and iPad never show an automatic install button; the steps above always apply.',
+    'When no Install button is available, use the Share steps in Safari above.',
   offlineLimited: 'Offline availability is limited on this device.',
 } as const;
 

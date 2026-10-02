@@ -6,7 +6,22 @@ test('production cannot enter the development community', async ({ page }) => {
     await page.goto(route);
     await expect(page.getByRole('heading', { name: 'cmeet is not available yet' })).toBeVisible();
     await expect(page.getByRole('navigation')).toHaveCount(0);
-    await expect(page.getByRole('button')).toHaveCount(0);
+    // The only permitted action is the native install button inside #install
+    // (Chromium may or may not emit beforeinstallprompt). Member, portal and
+    // app actions must never appear anywhere.
+    const stray = await page.evaluate(() => {
+      const install = document.getElementById('install');
+      const app = document.getElementById('app');
+      const strayButtons = [...document.querySelectorAll('button')].filter(
+        (button) => !(install && install.contains(button)),
+      );
+      return {
+        strayButtons: strayButtons.length,
+        appLinks: app ? app.querySelectorAll('a').length : -1,
+      };
+    });
+    expect(stray.strayButtons).toBe(0);
+    expect(stray.appLinks).toBe(0);
   }
 });
 
