@@ -1,8 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
 import Chat from '../../src/views/Chat.svelte';
+import ChatHarness from './fixtures/ChatHarness.svelte';
 import { createDevCmsg } from '../../../../core/src/dev-adapter.js';
 import type { CmsgClient } from '../../../../core/src/cmsg.js';
+
+function renderHarness(client: CmsgClient, initialPeer: string) {
+  const target = document.createElement('div');
+  document.body.appendChild(target);
+  const component = mount(ChatHarness, { target, props: { client, initialPeer } });
+  return {
+    target,
+    api: component as unknown as { showPeer(peer: string): void },
+    cleanup: () => {
+      unmount(component);
+      target.remove();
+    },
+  };
+}
 
 function render(client: CmsgClient, peer: string) {
   const target = document.createElement('div');
@@ -197,5 +212,105 @@ describe('direct chat', () => {
     } finally {
       second.cleanup();
     }
+  });
+});
+
+describe('direct chat peer switches', () => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it('never lets a slow old-peer send overwrite the new peer view', async () => {
+    const base = createDevCmsg({ messageState: 'stored' });
+    await establishTom(base);
+    const client: CmsgClient = {
+      ...base,
+      sendMessage: async (peer, text) => {
+        await sleep(80);
+        return base.sendMessage(peer, text);
+      },
+    };
+    const { target, api, cleanup } = renderHarness(client, 'member-tom');
+    try {
+      await vi.waitFor(() => expect(target.querySelector('#composer')).not.toBeNull());
+      await fillComposer(target, 'Stale hello');
+      buttonByName(target, 'Send')?.click();
+      api.showPeer('member-ana');
+      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await sleep(150);
+      await tick();
+      expect(target.textContent).toMatch(/ana-walks/);
+      expect(target.textContent).not.toMatch(/tom-cooks/);
+      expect(target.textContent).not.toMatch(/Stale hello/);
+      expect((target.querySelector('#composer') as HTMLInputElement).value).toBe('');
+      // The late send still reached its own peer through the real adapter.
+      expect(
+        (await base.thread('member-tom')).messages.some((m) => m.text === 'Stale hello'),
+      ).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('ignores a stale thread load that resolves after a fast peer switch', async () => {
+    const base = createDevCmsg();
+    await establishTom(base);
+    const client: CmsgClient = {
+      ...base,
+      thread: async (peer) => {
+        if (peer === 'member-tom') await sleep(80);
+        return base.thread(peer);
+      },
+    };
+    const { target, api, cleanup } = renderHarness(client, 'member-tom');
+    try {
+      api.showPeer('member-ana');
+      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await sleep(150);
+      await tick();
+      expect(target.textContent).toMatch(/ana-walks/);
+      expect(target.textContent).not.toMatch(/tom-cooks/);
+      expect(target.textContent).not.toMatch(/Hello back!/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps drafts per peer and resets confirmation on switch', async () => {
+    const client = createDevCmsg();
+    await establishTom(client);
+    const { target, api, cleanup } = renderHarness(client, 'member-tom');
+    try {
+      await vi.waitFor(() => expect(target.querySelector('#composer')).not.toBeNull());
+      await fillComposer(target, 'note for tom');
+      buttonByName(target, 'Punish')?.click();
+      await tick();
+      expect(buttonByName(target, 'Confirm punish')).not.toBeNull();
+      api.showPeer('member-ana');
+      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      expect(buttonByName(target, 'Confirm punish')).toBeNull();
+      expect((target.querySelector('#composer') as HTMLInputElement).value).toBe('');
+      await fillComposer(target, 'note for ana');
+      api.showPeer('member-tom');
+      await vi.waitFor(() => expect(target.textContent).toMatch(/tom-cooks/));
+      expect((target.querySelector('#composer') as HTMLInputElement).value).toBe('note for tom');
+      expect(buttonByName(target, 'Confirm punish')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('tears down a pending load on unmount without further updates', async () => {
+    const base = createDevCmsg();
+    await establishTom(base);
+    const client: CmsgClient = {
+      ...base,
+      thread: async (peer) => {
+        await sleep(80);
+        return base.thread(peer);
+      },
+    };
+    const { target, cleanup } = renderHarness(client, 'member-tom');
+    cleanup();
+    await sleep(150);
+    expect(document.body.contains(target)).toBe(false);
   });
 });

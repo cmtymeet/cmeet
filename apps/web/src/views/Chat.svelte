@@ -10,13 +10,20 @@
   let { client, peer }: Props = $props();
 
   let thread: Thread | null = $state(null);
+  let drafts: Record<string, string> = $state({});
   let draft = $state('');
   let error = $state('');
   let sendBusy = $state(false);
   let actionBusy: string | null = $state(null);
   let punishArmed = $state(false);
   let errorNode: HTMLDivElement | null = $state(null);
+  // Generation: bumped on every peer change and on teardown so late
+  // completions from an old peer can never touch the new view.
   let loadSeq = 0;
+  // Per-load request id: each load is newer than the last, so an earlier
+  // event-triggered load cannot overwrite later state.
+  let loadReq = 0;
+  let latestReq = 0;
 
   const busy = $derived(sendBusy || actionBusy !== null);
   const threadState = $derived(thread?.state ?? 'active');
@@ -33,17 +40,23 @@
           : t.statusActive,
   );
 
-  async function load(requestedPeer: string, seq: number) {
+  async function load(requestedPeer: string, seq: number, req: number) {
     try {
       const next = await client.thread(requestedPeer);
-      if (seq !== loadSeq) return;
+      if (seq !== loadSeq || req !== latestReq) return;
       thread = next;
       error = '';
     } catch (e) {
-      if (seq !== loadSeq) return;
+      if (seq !== loadSeq || req !== latestReq) return;
       thread = null;
       error = e instanceof Error ? e.message : t.loadFailed;
     }
+  }
+
+  function requestLoad(requestedPeer: string, seq: number) {
+    loadReq += 1;
+    latestReq = loadReq;
+    void load(requestedPeer, seq, latestReq);
   }
 
   $effect(() => {
@@ -52,16 +65,21 @@
     const seq = loadSeq;
     thread = null;
     error = '';
+    draft = drafts[current] ?? '';
+    sendBusy = false;
+    actionBusy = null;
     punishArmed = false;
-    void load(current, seq);
+    requestLoad(current, seq);
     const unsubscribe = client.subscribe((event) => {
+      if (seq !== loadSeq) return;
       if (event.type === 'message' && event.message.threadId === thread?.id) {
-        void load(current, seq);
+        requestLoad(current, seq);
       } else if (event.type === 'contacts') {
-        void load(current, seq);
+        requestLoad(current, seq);
       }
     });
     return () => {
+      loadSeq += 1;
       unsubscribe();
     };
   });
@@ -70,26 +88,36 @@
     if (error) errorNode?.focus();
   });
 
+  function onDraftInput(value: string) {
+    draft = value;
+    drafts[peer] = value;
+  }
+
   async function send() {
     const text = draft.trim();
     if (!text || sendBusy || actionBusy !== null) return;
     const current = peer;
+    const seq = loadSeq;
     sendBusy = true;
     error = '';
     try {
       await client.sendMessage(current, text);
+      if (seq !== loadSeq) return;
+      drafts[current] = '';
       draft = '';
-      await load(current, loadSeq);
+      requestLoad(current, seq);
     } catch (e) {
+      if (seq !== loadSeq) return;
       error = e instanceof Error ? e.message : t.sendFailed;
     } finally {
-      sendBusy = false;
+      if (seq === loadSeq) sendBusy = false;
     }
   }
 
   async function runAction(kind: 'close' | 'block' | 'punish' | 'reopen') {
     if (actionBusy !== null || sendBusy) return;
     const current = peer;
+    const seq = loadSeq;
     actionBusy = kind;
     error = '';
     try {
@@ -97,19 +125,22 @@
       else if (kind === 'block') await client.blockMember(current);
       else if (kind === 'punish') await client.punishConversation(current);
       else await client.requestReopen(current);
+      if (seq !== loadSeq) return;
       punishArmed = false;
-      await load(current, loadSeq);
+      requestLoad(current, seq);
     } catch (e) {
+      if (seq !== loadSeq) return;
       error = e instanceof Error ? e.message : t.actionFailed;
     } finally {
-      actionBusy = null;
+      if (seq === loadSeq) actionBusy = null;
     }
   }
 
   function stateLabel(state: string): string {
     if (state === 'queued') return t.queuedLabel;
     if (state === 'stored') return t.storedLabel;
-    return t.receivedLabel;
+    if (state === 'received') return t.receivedLabel;
+    return state;
   }
 </script>
 
@@ -131,7 +162,7 @@
     {/if}
   {/if}
   {#if error}
-    <div tabindex="-1" bind:this={errorNode}>
+    <div class="error-focus" tabindex="-1" bind:this={errorNode}>
       <Notice tone="error">{error}</Notice>
     </div>
   {/if}
@@ -147,21 +178,20 @@
     {#if thread.messages.length === 0}<p class="muted">{t.empty}</p>{/if}
     <p class="muted">{t.historyNote}</p>
     <form class="composer" onsubmit={(e) => { e.preventDefault(); void send(); }}>
-      <label class="muted" for="composer" style="position:absolute;left:-9999px;">{t.messageLabel}</label>
+      <label class="visually-hidden" for="composer">{t.messageLabel}</label>
       <input
         id="composer"
         value={draft}
-        oninput={(e) => (draft = e.currentTarget.value)}
+        oninput={(e) => onDraftInput(e.currentTarget.value)}
         placeholder={t.messageLabel}
         autocomplete="off"
-        maxlength="2000"
         disabled={!isOpen || busy}
       />
       <Button type="submit" variant="primary" busy={sendBusy} busyLabel={t.sending} disabled={!isOpen || busy}>
         {t.send}
       </Button>
     </form>
-    <div class="row" style="margin-top: 0.75rem;">
+    <div class="row actions">
       {#if threadState === 'closed'}
         <Button
           busy={actionBusy === 'reopen'}
@@ -191,7 +221,7 @@
       {/if}
     </div>
     {#if punishArmed}
-      <div role="group" aria-label={t.punishAction} style="margin-top: 0.75rem;">
+      <div class="confirm" role="group" aria-label={t.punishAction}>
         <Notice tone="warning">{t.punishCost}</Notice>
         <div class="row">
           <Button
@@ -212,3 +242,23 @@
     <p aria-live="polite">{t.loading}</p>
   {/if}
 </section>
+
+<style>
+  .visually-hidden {
+    position: absolute;
+    left: -9999px;
+  }
+  .error-focus:focus {
+    outline: none;
+  }
+  .error-focus:focus-visible {
+    outline: 3px solid var(--cmeet-focus);
+    outline-offset: 2px;
+  }
+  .actions {
+    margin-top: 0.75rem;
+  }
+  .confirm {
+    margin-top: 0.75rem;
+  }
+</style>
