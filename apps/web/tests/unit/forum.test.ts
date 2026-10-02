@@ -96,7 +96,7 @@ describe('forum discovery', () => {
     try {
       await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
       await fill(target, 'filter-neighbourhood', 'East');
-      await vi.waitFor(() => expect(target.textContent).not.toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(target.querySelector('article[aria-label="Public profile of ana-walks"]')).toBeNull());
       expect(target.textContent).toMatch(/tom-cooks/);
       await fill(target, 'filter-neighbourhood', '');
       await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
@@ -211,13 +211,13 @@ describe('forum discovery', () => {
       await vi.waitFor(() => expect(calls).toBe(1));
       await fill(target, 'filter-neighbourhood', 'East');
       await vi.waitFor(() => expect(target.textContent).toMatch(/tom-cooks/));
-      expect(target.textContent).not.toMatch(/ana-walks/);
+      expect(target.querySelector('article[aria-label="Public profile of ana-walks"]')).toBeNull();
       releaseFirst({ entries: [], cursor: null });
       await tick();
       await tick();
       // The stale first page must not wipe the newer filtered view.
       expect(target.textContent).toMatch(/tom-cooks/);
-      expect(target.textContent).not.toMatch(/ana-walks/);
+      expect(target.querySelector('article[aria-label="Public profile of ana-walks"]')).toBeNull();
     } finally {
       cleanup();
     }
@@ -387,6 +387,7 @@ describe('forum discovery', () => {
       expect(target.textContent).toMatch(/Front: public profile/);
 
       buttonByName(target, 'Refresh')!.click();
+      await tick();
       await vi.waitFor(() => expect(buttonByName(target, 'Want to know more')).not.toBeNull());
       // Rules can change after discovery. The owner rechecks on the key request.
       await client.saveRules([{ field: 'age', min: 50, max: 60 }]);

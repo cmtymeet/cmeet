@@ -406,6 +406,8 @@ describe('core coverage: forum discovery', () => {
     expect((await client.discover([])).entries).toEqual([]);
     await client.saveRules([{ field: 'neighbourhood', min: 1 }]);
     expect((await client.discover([])).entries).toEqual([]);
+    await client.saveRules([{ field: 'age', max: 20 }]);
+    expect((await client.discover([])).entries).toEqual([]);
   });
 
   it('treats a bare location rule as satisfied and a ranged one by distance', async () => {
@@ -715,6 +717,17 @@ describe('core coverage: contacts', () => {
 /* ------------------------------------------------------------------ */
 
 describe('core coverage: threads', () => {
+  it('keeps unopened contacts unknown and refuses messages to absent peers', async () => {
+    const client = createDevCmsg();
+    await client.thread('member-ana');
+    expect(await client.contacts()).toContainEqual(expect.objectContaining({ memberId: 'member-ana', relation: 'unknown' }));
+    await expect(client.sendMessage('absent-peer', 'Hello')).rejects.toThrow('not open');
+    await client.punishConversation('absent-peer');
+    expect((await client.thread('absent-peer')).state).toBe('blocked');
+    await client.closeConversation('another-absent-peer');
+    await client.requestReopen('another-absent-peer');
+    expect((await client.thread('another-absent-peer')).state).toBe('reopen-pending');
+  });
   it('starts without threads and creates an inactive draft for known peers', async () => {
     const client = createDevCmsg();
     await client.joinWithVoucher(JOIN);

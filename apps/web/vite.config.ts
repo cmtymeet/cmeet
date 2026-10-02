@@ -26,6 +26,7 @@ export default defineConfig({
     include: ['tests/unit/**/*.test.ts'],
     coverage: {
       provider: 'v8',
+      experimentalAstAwareRemapping: true,
       allowExternal: true,
       reportOnFailure: true,
       reportsDirectory: './coverage',

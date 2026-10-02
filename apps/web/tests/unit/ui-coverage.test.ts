@@ -523,6 +523,43 @@ describe('Notice tones, roles and titles', () => {
   });
 });
 
+describe('shared control edge states', () => {
+  it('uses the level name when a partial label map omits it', async () => {
+    const { target, cleanup } = render(LevelBadge, { level: 'room', labels: { circle: 'Circle' } });
+    try {
+      await tick();
+      expect(target.textContent).toBe('room');
+    } finally { await cleanup(); }
+  });
+
+  it('recovers keyboard selection when the current value leaves the options', async () => {
+    const onselect = vi.fn();
+    const { target, cleanup } = render(SegmentedControl, {
+      label: 'Updated options', current: 'removed',
+      options: [{ value: 'first', label: 'First' }, { value: 'second', label: 'Second' }], onselect,
+    });
+    try {
+      await tick();
+      keydown(target.querySelector('[role="tablist"]'), 'Home');
+      expect(onselect).toHaveBeenCalledWith('first');
+      expect(document.activeElement).toBe(target.querySelector('[role="tab"]'));
+    } finally { await cleanup(); }
+  });
+
+  it('opens and closes when focus starts on an SVG element', async () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('tabindex', '0');
+    document.body.appendChild(svg);
+    svg.focus();
+    expect(document.activeElement).toBe(svg);
+    const { target, cleanup } = render(Dialog, { open: true, labelledBy: 'svg-origin-dialog' });
+    try {
+      await tick();
+      expect(dialogOf(target).open).toBe(true);
+    } finally { await cleanup(); svg.remove(); }
+  });
+});
+
 describe('ProfilePreview flashcard front and back', () => {
   const values = { age: 34, about: 'Hello.' };
 

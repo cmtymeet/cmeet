@@ -13,6 +13,8 @@ async function joinAndPublish(page: import('@playwright/test').Page) {
   await page.getByRole('link', { name: 'Profile', exact: true }).click();
   await page.locator('#profile-age').fill('34');
   await page.locator('#profile-neighbourhood').selectOption('North');
+  await page.getByLabel('Latitude', { exact: true }).fill('47.3769');
+  await page.getByLabel('Longitude', { exact: true }).fill('8.5417');
   await page.getByRole('button', { name: 'Save profile' }).click();
   await expect(page.getByText('Profile published and checked.')).toBeVisible();
 }
