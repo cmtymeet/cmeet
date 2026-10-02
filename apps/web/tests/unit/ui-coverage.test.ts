@@ -24,6 +24,7 @@ import type { GroupView, ProfileSchema, Wave } from '../../../../core/src/cmsg.j
 import DialogHarness from './fixtures/DialogHarness.svelte';
 import SegmentedHarness from './fixtures/SegmentedHarness.svelte';
 import SnippetHarness from './fixtures/SnippetHarness.svelte';
+import TextFieldHarness from './fixtures/TextFieldHarness.svelte';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function render<P extends Record<string, unknown>>(view: Component<any>, props: P) {
@@ -1027,6 +1028,26 @@ describe('SegmentedControl options, selection and keyboard', () => {
 });
 
 describe('TextField inputs, help, errors and choices', () => {
+  it('preserves selection when choices refresh and follows parent value changes', async () => {
+    const { target, cleanup } = render(TextFieldHarness, {});
+    try {
+      await tick();
+      const select = target.querySelector('select')!;
+      expect(select.value).toBe('Second');
+      const controls = target.querySelectorAll('button');
+      controls[0]!.click();
+      await tick();
+      expect([...select.options].map((option) => option.value)).toEqual(['', 'First', 'Second', 'Third']);
+      expect(select.value).toBe('Second');
+      controls[1]!.click();
+      await tick();
+      expect(select.value).toBe('Third');
+      select.value = 'First';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick();
+      expect(target.querySelector('output')!.textContent).toBe('First');
+    } finally { await cleanup(); }
+  });
   it('keeps an empty choice field unselected with only its placeholder', async () => {
     const { target, cleanup } = render(TextField, { id: 'empty-options', label: 'Answer', choices: [], value: '' });
     try {
