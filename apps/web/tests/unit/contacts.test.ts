@@ -212,4 +212,154 @@ describe('contacts with real state', () => {
     await client.disconnect();
     target.remove();
   });
+
+  it('disables every mutation button while one action is in flight', async () => {
+    const base = createDevCmsg();
+    await seedEstablished(base);
+    await base.closeConversation('member-ana');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const client = {
+      ...base,
+      blockMember: async (peer: string) => {
+        await gate;
+        return base.blockMember(peer);
+      },
+    };
+    const target = makeTarget();
+    const view = mount(Contacts, { target, props: { client } });
+    try {
+      await vi.waitFor(() => expect(target.textContent).toContain('ana-walks'));
+      [...target.querySelectorAll('button')].find((b) => b.textContent === 'Block')!.click();
+      await vi.waitFor(() => expect(target.textContent).toContain('Blocking…'));
+      const buttons = [...target.querySelectorAll('button')];
+      const mutations = buttons.filter((b) =>
+        ['Block', 'Blocking…', 'Unblock', 'Unblocking…', 'Request reopening', 'Requesting…'].includes(
+          b.textContent ?? '',
+        ),
+      );
+      expect(mutations.length).toBeGreaterThan(1);
+      for (const b of mutations) expect(b.disabled).toBe(true);
+      const chats = buttons.filter((b) => b.textContent === 'Open chat');
+      expect(chats.length).toBeGreaterThan(0);
+      for (const b of chats) expect(b.disabled).toBe(false);
+      release();
+      await vi.waitFor(() => expect(target.textContent).toContain('Blocked'));
+    } finally {
+      release();
+      await base.disconnect();
+      await unmount(view);
+      target.remove();
+    }
+  });
+
+  it('initial load failure shows an error with retry instead of an empty state', async () => {
+    const base = createDevCmsg();
+    await seedEstablished(base);
+    let calls = 0;
+    const client = {
+      ...base,
+      contacts: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error('Network is down.');
+        return base.contacts();
+      },
+    };
+    const target = makeTarget();
+    const view = mount(Contacts, { target, props: { client } });
+    try {
+      await vi.waitFor(() => expect(target.textContent).toContain('Network is down.'));
+      expect(target.textContent).not.toContain('No contacts yet');
+      expect(target.querySelector('[role="status"]')).toBeNull();
+      [...target.querySelectorAll('button')].find((b) => b.textContent === 'Try again')!.click();
+      await vi.waitFor(() => expect(target.textContent).toContain('tom-cooks'));
+      // A successful retry clears the load error.
+      expect(target.textContent).not.toContain('Network is down.');
+    } finally {
+      await base.disconnect();
+      await unmount(view);
+      target.remove();
+    }
+  });
+
+  it('discards a delayed load that resolves after a newer contact event', async () => {
+    const base = createDevCmsg();
+    await seedEstablished(base);
+    const stale = await base.contacts();
+    expect(stale.find((c) => c.memberId === 'member-tom')?.relation).toBe('established');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    let loadStarted = false;
+    const client = {
+      ...base,
+      contacts: async () => {
+        if (first) {
+          first = false;
+          loadStarted = true;
+          await gate;
+          return stale;
+        }
+        return base.contacts();
+      },
+    };
+    const target = makeTarget();
+    const view = mount(Contacts, { target, props: { client } });
+    try {
+      // The initial delayed load must be in flight before the newer event arrives.
+      await vi.waitFor(() => expect(loadStarted).toBe(true));
+      await base.blockMember('member-tom');
+      await vi.waitFor(() => expect(target.textContent).toContain('Blocked'));
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      await vi.waitFor(() => expect(target.textContent).toContain('Blocked'));
+      expect(target.textContent).not.toContain('Established');
+    } finally {
+      release();
+      await base.disconnect();
+      await unmount(view);
+      target.remove();
+    }
+  });
+
+  it('starts no follow-up load after unmount while a mutation is pending', async () => {
+    const base = createDevCmsg();
+    await seedEstablished(base);
+    let loads = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const client = {
+      ...base,
+      contacts: async () => {
+        loads += 1;
+        return base.contacts();
+      },
+      blockMember: async (peer: string) => {
+        await gate;
+        return base.blockMember(peer);
+      },
+    };
+    const target = makeTarget();
+    const view = mount(Contacts, { target, props: { client } });
+    try {
+      await vi.waitFor(() => expect(target.textContent).toContain('tom-cooks'));
+      expect(loads).toBe(1);
+      [...target.querySelectorAll('button')].find((b) => b.textContent === 'Block')!.click();
+      await vi.waitFor(() => expect(target.textContent).toContain('Blocking…'));
+      await unmount(view);
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(loads).toBe(1);
+    } finally {
+      release();
+      await base.disconnect();
+      target.remove();
+    }
+  });
 });

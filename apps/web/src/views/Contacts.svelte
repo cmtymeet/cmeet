@@ -17,6 +17,10 @@
   let generation = 0;
   let alive = true;
 
+  // One action at a time across the whole list; every mutation button reflects
+  // it while explicit open-chat navigation stays available.
+  let busy = $derived(busyKind !== '');
+
   async function load() {
     const request = ++generation;
     try {
@@ -24,11 +28,13 @@
       if (!alive || request !== generation) return;
       contacts = next;
       loaded = true;
+      error = '';
     } catch (e) {
       if (alive && request === generation) {
-        // Preserve the existing list; report the failure plainly.
+        // Preserve the existing list. When nothing loaded yet, keep
+        // loaded=false so the view shows the error with retry, never a
+        // successful-looking empty state.
         error = e instanceof Error ? e.message : s.failed;
-        loaded = true;
       }
     }
   }
@@ -38,6 +44,9 @@
     const stop = client.subscribe((event) => {
       if (!alive) return;
       if (event.type === 'contacts') {
+        // The event is newer than any in-flight load; invalidate those
+        // generations so a stale response cannot restore old relationships.
+        generation += 1;
         contacts = event.contacts;
         loaded = true;
       }
@@ -63,54 +72,23 @@
     return contact.online ? s.online : s.offline;
   }
 
-  function isBusy(peer: string): boolean {
-    return busyPeer === peer && busyKind !== '';
-  }
+  type MutationKind = 'block' | 'unblock' | 'reopen';
 
-  async function block(peer: string) {
+  async function mutate(peer: string, kind: MutationKind) {
     if (busyKind !== '') return;
     error = '';
     busyPeer = peer;
-    busyKind = 'block';
+    busyKind = kind;
     try {
-      await client.blockMember(peer);
-      await load();
-    } catch (e) {
-      if (alive) error = e instanceof Error ? e.message : s.actionFailed;
-    } finally {
-      if (alive) {
-        busyPeer = '';
-        busyKind = '';
-      }
-    }
-  }
-
-  async function unblock(peer: string) {
-    if (busyKind !== '') return;
-    error = '';
-    busyPeer = peer;
-    busyKind = 'unblock';
-    try {
-      // Unblocking only returns a closed relation; it never opens chat.
-      await client.unblockMember(peer);
-      await load();
-    } catch (e) {
-      if (alive) error = e instanceof Error ? e.message : s.actionFailed;
-    } finally {
-      if (alive) {
-        busyPeer = '';
-        busyKind = '';
-      }
-    }
-  }
-
-  async function reopen(peer: string) {
-    if (busyKind !== '') return;
-    error = '';
-    busyPeer = peer;
-    busyKind = 'reopen';
-    try {
-      await client.requestReopen(peer);
+      // Unblocking only returns a closed relation; reopening is an explicit
+      // separate step. Neither ever opens chat; chat opens only on explicit
+      // user navigation.
+      if (kind === 'block') await client.blockMember(peer);
+      else if (kind === 'unblock') await client.unblockMember(peer);
+      else await client.requestReopen(peer);
+      // No follow-up load after unmount: the subscriber is gone and any
+      // refresh would be discarded anyway.
+      if (!alive) return;
       await load();
     } catch (e) {
       if (alive) error = e instanceof Error ? e.message : s.actionFailed;
@@ -132,7 +110,11 @@
   <p class="muted">{s.lead}</p>
   {#if error}<Notice tone="error">{error}</Notice>{/if}
   {#if !loaded}
-    <p role="status">{s.loading}</p>
+    {#if error}
+      <div class="row"><Button onclick={() => void load()}>{s.retry}</Button></div>
+    {:else}
+      <p role="status">{s.loading}</p>
+    {/if}
   {:else if contacts.length === 0}
     <EmptyState title={s.empty} hint={s.emptyHint} />
     <div class="row"><Button onclick={() => void load()}>{s.refresh}</Button></div>
@@ -152,22 +134,22 @@
             {/if}
           </span>
           <span class="row">
-            <Button onclick={() => openChat(contact.memberId)} disabled={isBusy(contact.memberId)}>
+            <Button onclick={() => openChat(contact.memberId)}>
               {s.openChat}
             </Button>
             {#if contact.blockedByMe || contact.relation === 'blocked'}
               <Button
                 variant="secondary"
-                disabled={isBusy(contact.memberId)}
-                onclick={() => void unblock(contact.memberId)}
+                disabled={busy}
+                onclick={() => void mutate(contact.memberId, 'unblock')}
               >
                 {busyPeer === contact.memberId && busyKind === 'unblock' ? s.unblockBusy : s.unblock}
               </Button>
             {:else}
               <Button
                 variant="danger"
-                disabled={isBusy(contact.memberId)}
-                onclick={() => void block(contact.memberId)}
+                disabled={busy}
+                onclick={() => void mutate(contact.memberId, 'block')}
               >
                 {busyPeer === contact.memberId && busyKind === 'block' ? s.blockBusy : s.block}
               </Button>
@@ -175,8 +157,8 @@
             {#if !contact.blockedByMe && contact.relation === 'closed'}
               <Button
                 variant="primary"
-                disabled={isBusy(contact.memberId)}
-                onclick={() => void reopen(contact.memberId)}
+                disabled={busy}
+                onclick={() => void mutate(contact.memberId, 'reopen')}
               >
                 {busyPeer === contact.memberId && busyKind === 'reopen' ? s.reopenBusy : s.requestReopen}
               </Button>

@@ -8,6 +8,7 @@ export const contactsStrings = {
   empty: 'No contacts yet',
   emptyHint: 'Answer a wave and the conversation starts here.',
   refresh: 'Refresh',
+  retry: 'Try again',
   failed: 'Contacts are unavailable right now.',
   actionFailed: 'That did not work. Try again.',
   online: 'Online',
