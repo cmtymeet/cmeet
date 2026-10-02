@@ -2,7 +2,7 @@
   import { memberName } from '../../../../ui/src/member-name.js';
   import { untrack } from 'svelte';
   import type { CmsgClient, Thread } from '../../../../core/src/cmsg.js';
-  import { Button, Notice } from '../../../../ui/src/index.js';
+  import { Button, Notice, Dialog } from '../../../../ui/src/index.js';
   import { chatStrings as t } from '../strings/chat.js';
 
   interface Props {
@@ -16,6 +16,7 @@
   let draft = $state('');
   let error = $state('');
   let sendBusy = $state(false);
+  let confirmPunish = $state(false);
   let actionBusy: string | null = $state(null);
   let errorNode: HTMLDivElement | null = $state(null);
   // Generation: bumped on every peer change and on teardown so late
@@ -71,6 +72,7 @@
     draft = untrack(() => drafts[current] ?? '');
     sendBusy = false;
     actionBusy = null;
+    confirmPunish = false;
     requestLoad(current, seq);
     const unsubscribe = client.subscribe((event) => {
       if (seq !== loadSeq) return;
@@ -116,7 +118,7 @@
     }
   }
 
-  async function runAction(kind: 'close' | 'block' | 'reopen') {
+  async function runAction(kind: 'close' | 'block' | 'reopen' | 'punish') {
     if (actionBusy !== null || sendBusy) return;
     const current = peer;
     const seq = loadSeq;
@@ -124,9 +126,11 @@
     error = '';
     try {
       if (kind === 'close') await client.closeConversation(current);
+      else if (kind === 'punish') await client.punishConversation(current);
       else if (kind === 'block') await client.blockMember(current);
       else await client.requestReopen(current);
       if (seq !== loadSeq) return;
+      confirmPunish = false;
       requestLoad(current, seq);
     } catch (e) {
       if (seq !== loadSeq) return;
@@ -211,6 +215,7 @@
           {t.closeAction}
         </Button>
       {/if}
+      <Button variant="danger" disabled={busy || threadState === 'blocked'} onclick={() => { confirmPunish = true; }}>{t.punishAction}</Button>
       <Button busy={actionBusy === 'block'} busyLabel={t.working} disabled={busy} onclick={() => void runAction('block')}>
         {t.blockAction}
       </Button>
@@ -218,6 +223,15 @@
   {:else if !error}
     <p aria-live="polite">{t.loading}</p>
   {/if}
+  <Dialog open={confirmPunish} labelledBy="chat-punish-title" describedBy="chat-punish-detail" onclose={() => { if (!busy) confirmPunish = false; }}>
+    <h2 id="chat-punish-title">{t.punishTitle}</h2>
+    <p id="chat-punish-detail">{t.punishDetail}</p>
+    {#if error}<Notice tone="error">{error}</Notice>{/if}
+    <div class="row">
+      <Button disabled={busy} onclick={() => { confirmPunish = false; }}>{t.cancel}</Button>
+      <Button variant="danger" {busy} disabled={busy} onclick={() => void runAction('punish')}>{t.confirmPunish}</Button>
+    </div>
+  </Dialog>
 </section>
 
 <style>

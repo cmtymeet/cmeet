@@ -153,7 +153,7 @@ const SEED_MEMBERS: SeedMember[] = [
     },
     rules: [{ field: 'age', min: 25, max: 45 }],
     online: true,
-    record: { accepted: 0.7, declined: 0.25, punished: 0.05 },
+    record: { status: 'available', accepted: 0.7, declined: 0.25, punished: 0.05 },
   },
   {
     memberId: 'member-tom',
@@ -181,7 +181,7 @@ const SEED_MEMBERS: SeedMember[] = [
     },
     rules: [{ field: 'weekend', equals: ['Reading', 'Music'] }],
     online: true,
-    record: { accepted: 0.8, declined: 0.2, punished: 0 },
+    record: { status: 'available', accepted: 0.8, declined: 0.2, punished: 0 },
   },
   {
     memberId: 'member-jo',

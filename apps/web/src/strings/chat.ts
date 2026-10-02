@@ -2,6 +2,9 @@
 // Views use these labels so future translations copy this file only.
 
 export const chatStrings = {
+  punishAction: 'Punish', confirmPunish: 'Confirm punishment', cancel: 'Cancel',
+  punishTitle: 'Punishment costs both',
+  punishDetail: 'You and the other participant both pay the punishment cost. This also blocks the conversation. Blocking or respectfully closing remains available without punishment.',
   title: 'Messages',
   messageLabel: 'Write a message',
   send: 'Send',

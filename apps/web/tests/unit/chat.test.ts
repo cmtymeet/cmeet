@@ -126,7 +126,7 @@ describe('direct chat', () => {
     }
   });
 
-  it('offers no punishment action, only block and close', async () => {
+  it('offers punishment separately from block and close, without acting before confirmation', async () => {
     const client = createDevCmsg();
     await establishTom(client);
     const spy = vi.spyOn(client, 'punishConversation');
@@ -134,8 +134,8 @@ describe('direct chat', () => {
     try {
       await vi.waitFor(() => expect(target.querySelector('#composer')).not.toBeNull());
       const names = [...target.querySelectorAll('button')].map((b) => b.textContent?.trim() ?? '');
-      expect(names.join(' | ')).not.toMatch(/punish/i);
-      expect(target.textContent).not.toMatch(/costs both participants/i);
+      expect(names).toContain('Punish');
+      expect(target.querySelector('dialog')?.open).toBe(false);
       expect(buttonByName(target, 'Block')).not.toBeNull();
       expect(buttonByName(target, 'Respectfully close')).not.toBeNull();
       expect(spy).not.toHaveBeenCalled();

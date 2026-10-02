@@ -13,18 +13,19 @@ describe('community display names', () => {
     expect(memberName('garden_friend', 'Garden Friend')).toBe('Garden Friend · @garden_friend');
   });
 
-  it('distinguishes equal display names and never renders reserved public records', async () => {
+  it('distinguishes equal display names alongside a verified relative record', async () => {
     const target = document.createElement('div');
     const views = ['first-member', 'second-member'].map(handle => mount(PublicCard, { target, props: {
       card: { memberId: handle, handle, displayName: 'Garden Friend', online: true,
-        values: { location: { latitude: 47, longitude: 8 } }, record: { accepted: 1, declined: 0, punished: 0 } },
+        values: { location: { latitude: 47, longitude: 8 } }, record: { status: 'available', accepted: 1, declined: 0, punished: 0 } },
     } }));
     try {
       await tick();
       expect([...target.querySelectorAll('h3')].map(node => node.textContent)).toEqual([
         'Garden Friend · @first-member', 'Garden Friend · @second-member',
       ]);
-      expect(target.textContent).not.toMatch(/Welcomed|100%|\[object Object\]/);
+      expect(target.textContent).not.toMatch(/Welcomed|\[object Object\]/);
+      expect(target.textContent).toContain('100%');
       expect(target.textContent).toContain('47, 8');
     } finally { for (const view of views) await unmount(view); }
   });
