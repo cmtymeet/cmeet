@@ -21,7 +21,7 @@ export function isStandaloneMode(scope?: {
       (typeof window !== 'undefined'
         ? {
             matchMedia: window.matchMedia?.bind(window),
-            navigator: window.navigator,
+            navigator: window.navigator as Navigator & { standalone?: boolean },
           }
         : undefined);
     if (!target) return false;
