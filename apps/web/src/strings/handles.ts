@@ -1,0 +1,20 @@
+// English text for handle changes and optional community display names.
+export const handleStrings = {
+  heading: 'Your handle',
+  loading: 'Checking your handle options…',
+  loadFailed: 'Handle details could not be loaded. Try again.',
+  retry: 'Try again',
+  newLabel: 'New handle',
+  newHelp: 'Handles are 8 to 32 characters long. Your community checks every handle.',
+  change: 'Change handle',
+  changed: 'Your handle was changed.',
+  working: 'Changing…',
+  reasonPrefix: 'Reason from the admins (only you can see this)',
+  deadlinePrefix: 'Deadline',
+  chooseNote: 'You choose the new handle. An admin never picks a name for you. If you do not choose in time, a neutral placeholder is assigned.',
+  lockedNote: 'You cannot change your handle right now.',
+  noticeTitle: 'Please choose a new handle',
+  noticeAction: 'Choose a new handle',
+  displayNameNote: 'A display name, if your community uses one, is always shown together with your handle.',
+  shownAsNameHelp: 'Shown next to your handle as a display name. It does not have to be unique.',
+};

@@ -2,6 +2,7 @@
   import type { CmsgClient } from '../../../../core/src/cmsg.js';
   import { Button, Notice } from '../../../../ui/src/index.js';
   import { community } from '../community.js';
+  import HandleSettings from './HandleSettings.svelte';
 
   interface Props {
     client: CmsgClient;
@@ -33,6 +34,7 @@
     <Button onclick={() => (window.location.hash = '#/lobby')}>Back to lobby</Button>
     <Button variant="danger" {busy} onclick={() => void signOut()}>Sign out</Button>
   </div>
+  <HandleSettings {client} />
   {#if import.meta.env.DEV}
     <details><summary>Development portals</summary><p><a href="#/admin">Admin</a> · <a href="#/admin/schema">Schema</a> · <a href="#/root">Root</a></p></details>
   {/if}

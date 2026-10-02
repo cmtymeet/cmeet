@@ -15,6 +15,7 @@
 import type {
   AdminAccess,
   HandleChangeNotice,
+  HandlePolicy,
   MemberRole,
   RootBoardAccess,
   ChatMessage,
@@ -74,6 +75,10 @@ export interface DevAdapterOptions {
   role?: MemberRole;
   boardState?: RootBoardAccess['state'];
   communityScope?: 'community' | 'root';
+  /** Fixture handle-policy state; cmsg owns the real decision. */
+  handlePolicy?: HandlePolicy['state'];
+  /** Fixture community display name shown together with the handle. */
+  displayName?: string;
 }
 
 interface SeedMember {
@@ -261,7 +266,30 @@ export function createDevCmsg(options: DevAdapterOptions = {}): CmsgClient {
   let blocked = new Set<string>();
   let relations = new Map<string, Contact['relation']>();
   const roles = new Set<'admin' | 'root'>();
-  let handleChange: HandleChangeNotice | undefined;
+  let handleChange: HandleChangeNotice | undefined = options.handlePolicy === 'required'
+    ? { reason: 'Please choose a handle that fits this community.', deadlineLabel: 'Within 7 days of the request' }
+    : undefined;
+  let policyState: HandlePolicy['state'] = options.handlePolicy ?? 'settling-in';
+  const releasedHandles = new Set<string>();
+  function currentPolicy(): HandlePolicy {
+    const reservedNote = 'A handle you release stays reserved for two years.';
+    if (handleChange) {
+      return { state: 'required', canChange: true, reservedNote, reason: handleChange.reason, deadlineLabel: handleChange.deadlineLabel,
+        summary: 'An admin asked you to choose a new handle. Admins never choose it for you.' };
+    }
+    if (policyState === 'settling-in') {
+      return { state: policyState, canChange: true, reservedNote, deadlineLabel: 'Settling-in ends 7 days after admission',
+        summary: 'You can change your handle freely during your first 7 days.' };
+    }
+    if (policyState === 'token') {
+      return { state: policyState, canChange: true, reservedNote, summary: 'This community allows one change with a change token.' };
+    }
+    if (policyState === 'placeholder') {
+      return { state: policyState, canChange: false, reservedNote,
+        summary: 'No new handle was chosen in time, so a neutral placeholder was assigned.' };
+    }
+    return { state: 'locked', canChange: false, reservedNote, summary: 'Handles are locked after the settling-in period.' };
+  }
   let boardState = options.boardState ?? 'eligible';
   const roleMembers = new Map<string, AdminAccess['members']>();
   function access(scope = 'garden-neighbours'): AdminAccess {
@@ -447,6 +475,7 @@ export function createDevCmsg(options: DevAdapterOptions = {}): CmsgClient {
   function lobbyState(): LobbyState {
     return {
       handle,
+      displayName: options.displayName,
       handleChange: handleChange ? structuredClone(handleChange) : undefined,
       gates: [
         {
@@ -1211,6 +1240,31 @@ export function createDevCmsg(options: DevAdapterOptions = {}): CmsgClient {
       // Fixture passkey ceremony: any enrolled device key works equally.
       roles.clear();
       roles.add(role);
+    },
+
+    async handlePolicy() {
+      failIf('handlePolicy');
+      if (!joined) throw new Error('Join with a voucher first.');
+      return currentPolicy();
+    },
+
+    async changeHandle(next: string) {
+      failIf('changeHandle');
+      if (!joined) throw new Error('Join with a voucher first.');
+      if (!currentPolicy().canChange) throw new Error('Handle changes are not available right now.');
+      const name = next.trim();
+      if (name.length < 8 || name.length > 32) throw new Error('Handles are 8 to 32 characters long.');
+      if (name === handle) throw new Error('Choose a different handle.');
+      if (releasedHandles.has(name) || SEED_MEMBERS.some((member) => member.handle === name)) {
+        throw new Error('That handle is not available.');
+      }
+      releasedHandles.add(handle);
+      handle = name;
+      if (handleChange) policyState = 'locked';
+      else if (policyState === 'token') policyState = 'locked';
+      handleChange = undefined;
+      emit({ type: 'lobby', lobby: lobbyState() });
+      return currentPolicy();
     },
 
     async adminAccess(communityId?: string) {

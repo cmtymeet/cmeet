@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import type { CmsgClient, GateStep, LobbyState } from '../../../../core/src/cmsg.js';
+  import { memberName } from '../../../../ui/src/member-name.js';
   import { Button, Notice } from '../../../../ui/src/index.js';
   import { lobbyStrings as strings } from '../strings/lobby.js';
+  import { handleStrings } from '../strings/handles.js';
 
   interface Props {
     client: CmsgClient;
@@ -80,7 +82,13 @@
     </div>
   {/if}
   {#if lobby}
-    <p>{strings.handleLabel}: <strong>{lobby.handle}</strong></p>
+    <p>{strings.handleLabel}: <strong>{memberName(lobby.handle, lobby.displayName)}</strong></p>
+    {#if lobby.handleChange}
+      <Notice tone="warning" title={handleStrings.noticeTitle}>
+        {handleStrings.reasonPrefix}: {lobby.handleChange.reason}. {handleStrings.deadlinePrefix}: {lobby.handleChange.deadlineLabel}.
+        <a href="#/settings">{handleStrings.noticeAction}</a>
+      </Notice>
+    {/if}
     <h2>{strings.activeRequirements}</h2>
     <p class="muted">{strings.resumeNote}</p>
     {#if lobby.gates.length === 0}

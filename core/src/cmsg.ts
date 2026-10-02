@@ -59,6 +59,8 @@ export interface GateStep {
 
 export interface LobbyState {
   handle: Handle;
+  /** Optional cmsg-supplied community display name, always shown with the handle. */
+  displayName?: string;
   handleChange?: HandleChangeNotice;
   gates: GateStep[];
   profileComplete: boolean;
@@ -381,6 +383,21 @@ export interface HandleChangeNotice {
   deadlineLabel: string;
 }
 
+/**
+ * Handle change eligibility, decided entirely by cmsg. The frontend renders
+ * the state and never computes eligibility, deadlines or placeholders.
+ */
+export interface HandlePolicy {
+  state: 'settling-in' | 'locked' | 'token' | 'required' | 'placeholder';
+  canChange: boolean;
+  summary: string;
+  /** Human-readable end of the settling-in window or the required-change deadline. */
+  deadlineLabel?: string;
+  /** Private reason given to the member when an admin requires a change. */
+  reason?: string;
+  reservedNote: string;
+}
+
 export interface AdminAccess {
   communityId: string;
   assignableRoles: MemberRole[];
@@ -512,6 +529,8 @@ export interface CmsgClient {
 
   /* Admin (community scope) */
   signInRole(role: 'admin' | 'root'): Promise<void>;
+  handlePolicy(): Promise<HandlePolicy>;
+  changeHandle(next: Handle): Promise<HandlePolicy>;
   adminAccess(communityId?: string): Promise<AdminAccess>;
   adminSetRole(memberId: string, role: MemberRole, communityId?: string): Promise<AdminAccess>;
   requireHandleChange(memberId: string, reason: string, communityId?: string): Promise<HandleChangeNotice>;
