@@ -5,6 +5,7 @@ export async function enterCommunity(page: Page, query = '') {
   await page.getByLabel('Invitation voucher').fill('VOUCHER-TEST-123');
   await page.getByLabel(/Choose a handle/).fill('journey-member');
   await page.getByRole('button', { name: 'Continue to join' }).click();
+  await expect(page.getByRole('heading', { name: 'Lobby', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Profile', exact: true }).click();
   await page.locator('#profile-age').fill('34');
   await page.locator('#profile-neighbourhood').selectOption('North');
