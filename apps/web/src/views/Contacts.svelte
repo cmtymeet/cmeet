@@ -49,6 +49,7 @@
         generation += 1;
         contacts = event.contacts;
         loaded = true;
+        error = '';
       }
     });
     return () => {
