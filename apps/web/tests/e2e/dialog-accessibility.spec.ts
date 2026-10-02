@@ -9,10 +9,16 @@ async function joinAs(page: import('@playwright/test').Page, handle: string) {
   await expect(page.getByRole('heading', { name: 'Good conversations start with the right people.' })).toBeVisible({
     timeout: 15000,
   });
+  await page.getByRole('button', { name: 'Sign in / register' }).click();
   await page.getByLabel('Invitation voucher').fill('VOUCHER-TEST-123');
   await page.getByLabel(/Choose a handle/).fill(handle);
   await page.getByRole('button', { name: 'Continue to join' }).click();
   await expect(page.getByRole('heading', { name: 'Lobby' })).toBeVisible();
+  await page.getByRole('link', { name: 'Profile', exact: true }).click();
+  await page.locator('#profile-age').fill('34');
+  await page.locator('#profile-neighbourhood').selectOption('North');
+  await page.getByRole('button', { name: 'Save profile' }).click();
+  await expect(page.getByText('Profile published and checked.')).toBeVisible();
   await page.getByRole('link', { name: 'Groups' }).click();
   await expect(page.getByRole('heading', { name: 'Groups' })).toBeVisible();
 }
