@@ -19,9 +19,9 @@
   const nameField = $derived(publicFields.find((field) => field.shownAsName));
   const nameValue = $derived(nameField ? values[nameField.key] : undefined);
 
-  function show(value: unknown): string {
+  function show(value: ProfileValues[string] | undefined): string {
     if (value === undefined || value === '') return '—';
-    return String(value);
+    return typeof value === 'object' ? `${value.latitude}, ${value.longitude}` : String(value);
   }
 </script>
 

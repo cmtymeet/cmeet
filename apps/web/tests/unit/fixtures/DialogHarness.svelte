@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   // Real snippet-children harness for Dialog rerender tests.
   // Owns `open` like a production parent: Dialog only requests close,
   // this harness decides. Exercises implicit snippet children, label
@@ -12,7 +13,7 @@
   }
 
   let { labelledBy = 'harness-title', startOpen = true, onclose }: Props = $props();
-  let open = $state(startOpen);
+  let open = $state(untrack(() => startOpen));
 
   function handleClose(): void {
     open = false;

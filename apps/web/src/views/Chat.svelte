@@ -27,8 +27,8 @@
   let latestReq = 0;
 
   const busy = $derived(sendBusy || actionBusy !== null);
-  const threadState = $derived(thread?.state ?? 'active');
-  const isOpen = $derived(
+  const threadState = $derived.by(() => thread?.state ?? 'active');
+  const isOpen = $derived.by(() =>
     thread !== null && thread.established && (thread.state === undefined || thread.state === 'active'),
   );
   const statusLabel = $derived(

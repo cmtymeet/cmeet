@@ -429,7 +429,7 @@
               label={s.waveLabel}
               value={waveDrafts[entry.memberId] ?? ''}
               multiline
-              oninput={(v) => (waveDrafts = { ...waveDrafts, [entry.memberId]: v }))}
+              oninput={(v) => (waveDrafts = { ...waveDrafts, [entry.memberId]: v })}
             />
             <div class="row">
               <Button

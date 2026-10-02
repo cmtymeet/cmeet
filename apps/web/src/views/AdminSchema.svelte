@@ -205,6 +205,8 @@
           {#each schema.fields as field, i (field.key)}
             <li class="schema-item" aria-label={`Question ${i + 1}: ${field.question}`}>
               <div
+                role="group"
+                aria-label="Question order"
                 class="schema-row"
                 class:dragging={dragging === field.key}
                 draggable="true"

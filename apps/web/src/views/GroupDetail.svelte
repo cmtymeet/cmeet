@@ -487,7 +487,7 @@
               onchange={(e) => (forkTarget = e.currentTarget.value)}
             >
               <option value="">{s.targetNone}</option>
-              {#each allGroups.filter((g) => g.id !== group.id) as candidate (candidate.id)}
+              {#each allGroups.filter((g) => g.id !== id) as candidate (candidate.id)}
                 <option value={candidate.id}>{candidate.name}</option>
               {/each}
             </select>

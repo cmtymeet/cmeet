@@ -4,6 +4,7 @@ import type {
   CmsgClient,
   CmsgEvent,
   GroupView,
+  MatchRule,
   ProfileValues,
 } from '../../../../core/src/cmsg.js';
 
@@ -253,7 +254,7 @@ describe('core coverage: schema, profile and rules', () => {
 
   it('stores a detached copy of saved rules', async () => {
     const client = createDevCmsg();
-    const next = [{ field: 'age', min: 30 }];
+    const next: MatchRule[] = [{ field: 'age', min: 30 }];
     await client.saveRules(next);
     next.push({ field: 'injected' });
     expect(await client.ownRules()).toEqual([{ field: 'age', min: 30 }]);

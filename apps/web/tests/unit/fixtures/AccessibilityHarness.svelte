@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import Dialog from '../../../../../ui/src/components/Dialog.svelte';
   import ProgressBar from '../../../../../ui/src/components/ProgressBar.svelte';
 
@@ -10,10 +11,10 @@
 
   // Controlled dialog: the harness owns `open`, so a refused dismissal keeps
   // the dialog mounted exactly like a busy parent would.
-  let open = $state(startOpen);
+  let open = $state(untrack(() => startOpen));
   let refuseOnce = $state(false);
   let closeCount = $state(0);
-  let progress = $state(progressInitial);
+  let progress = $state(untrack(() => progressInitial));
 
   function handleClose() {
     closeCount += 1;

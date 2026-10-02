@@ -31,17 +31,19 @@ describe('community display names', () => {
 
   it('uses only a public flagged field for preview identity', async () => {
     const schema: ProfileSchema = { version: 1, fields: [
+      { key: 'location', question: 'Meeting place', kind: 'location', visibility: 'public', required: false, filterable: false },
       { key: 'secret', question: 'Private name', kind: 'short-text', visibility: 'private', shownAsName: true, required: false, filterable: false },
       { key: 'name', question: 'Display name', kind: 'short-text', visibility: 'public', shownAsName: true, required: false, filterable: false },
     ] };
     const target = document.createElement('div');
-    const view = mount(ProfilePreview, { target, props: { schema, handle: 'garden_friend', values: { secret: 'WITHHELD', name: 'Garden Friend' } } });
+    const view = mount(ProfilePreview, { target, props: { schema, handle: 'garden_friend', values: { secret: 'WITHHELD', name: 'Garden Friend', location: { latitude: 47, longitude: 8 } } } });
     try {
       await tick();
       expect(target.querySelector('.identity')?.textContent).toBe('Garden Friend · @garden_friend');
       expect(target.textContent).not.toContain('WITHHELD');
+      expect(target.textContent).toContain('47, 8');
     } finally { await unmount(view); }
-    const privateOnly = mount(ProfilePreview, { target, props: { schema: { ...schema, fields: [schema.fields[0]!] }, handle: 'garden_friend', values: { secret: 'WITHHELD' } } });
+    const privateOnly = mount(ProfilePreview, { target, props: { schema: { ...schema, fields: [schema.fields[1]!] }, handle: 'garden_friend', values: { secret: 'WITHHELD' } } });
     try {
       await tick();
       expect(target.querySelector('.identity')?.textContent).toBe('garden_friend');
