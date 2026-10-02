@@ -25,6 +25,8 @@ export default defineConfig({
     include: ['tests/unit/**/*.test.ts'],
     coverage: {
       provider: 'v8',
+      allowExternal: true,
+      reportOnFailure: true,
       reportsDirectory: './coverage',
       reporter: ['text', 'json', 'json-summary', 'lcov'],
       include: ['../../ui/src/**/*.svelte', '../../ui/src/**/*.ts', '../../core/src/**/*.ts'],
