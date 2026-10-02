@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
 import Forum from '../../src/views/Forum.svelte';
 import { createDevCmsg } from '../../../../core/src/dev-adapter.js';
-import type { CmsgClient, CmsgEventHandler, DiscoveryFilter, MatchPage } from '../../../../core/src/cmsg.js';
+import type {
+  CmsgClient,
+  CmsgEventHandler,
+  DiscoveryFilter,
+  MatchPage,
+  ProfileExchange,
+} from '../../../../core/src/cmsg.js';
 
 const join = { voucher: 'VOUCHER-TEST-123', handle: 'fixture-member' };
 const ownValues = {
@@ -35,6 +41,18 @@ function render(client: CmsgClient) {
 function buttonByName(target: HTMLElement, name: string): HTMLButtonElement | null {
   const buttons = [...target.querySelectorAll('button')];
   return (buttons.find((b) => b.textContent?.includes(name)) as HTMLButtonElement) ?? null;
+}
+
+function captureEvents(base: CmsgClient): { client: CmsgClient; handler: () => CmsgEventHandler | null } {
+  let handler: CmsgEventHandler | null = null;
+  const client: CmsgClient = {
+    ...base,
+    subscribe: (next) => {
+      handler = next;
+      return base.subscribe(next);
+    },
+  };
+  return { client, handler: () => handler };
 }
 
 async function fill(target: HTMLElement, id: string, value: string) {
@@ -190,8 +208,7 @@ describe('forum discovery', () => {
     };
     const { target, cleanup } = render(gated);
     try {
-      await tick();
-      await tick();
+      await vi.waitFor(() => expect(calls).toBe(1));
       await fill(target, 'filter-neighbourhood', 'East');
       await vi.waitFor(() => expect(target.textContent).toMatch(/tom-cooks/));
       expect(target.textContent).not.toMatch(/ana-walks/);
@@ -203,6 +220,121 @@ describe('forum discovery', () => {
       expect(target.textContent).not.toMatch(/ana-walks/);
     } finally {
       cleanup();
+    }
+  });
+
+  it('drops a stale search completion after a reset removed a departed member', async () => {
+    const base = await admitted();
+    const full = await base.discover([]);
+    const anaOnly = full.entries.filter((e) => e.memberId === 'member-ana');
+    expect(anaOnly.length).toBe(1);
+    let releaseStale!: (value: MatchPage) => void;
+    const staleGate = new Promise<MatchPage>((resolve) => {
+      releaseStale = resolve;
+    });
+    const realDiscover = base.discover.bind(base);
+    let calls = 0;
+    const gated: CmsgClient = {
+      ...base,
+      discover: (discoveryFilters: DiscoveryFilter[], atCursor?: string | null): Promise<MatchPage> => {
+        calls += 1;
+        if (calls === 1) return staleGate;
+        return realDiscover(discoveryFilters, atCursor);
+      },
+    };
+    const { client, handler } = captureEvents(gated);
+    const { target, cleanup } = render(client);
+    try {
+      await vi.waitFor(() => expect(calls).toBe(1));
+      // A reset arrives while the first search is still in flight: only ana remains.
+      handler()!({ type: 'matches', page: { entries: anaOnly, cursor: null }, reset: true });
+      await tick();
+      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      // The stale search resolves late with the departed member included.
+      releaseStale(full);
+      await tick();
+      await tick();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(target.textContent).toMatch(/ana-walks/);
+      expect(target.textContent).not.toMatch(/tom-cooks/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('writes nothing and starts no further requests after unmount teardown', async () => {
+    const base = await admitted();
+    const exchangesSpy = vi.spyOn(base, 'profileExchanges');
+    const { target, cleanup } = render(base);
+    try {
+      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      expect(exchangesSpy).toHaveBeenCalled();
+      exchangesSpy.mockClear();
+      // Start a key request (200ms fixture delay) and unmount before it lands.
+      buttonByName(target, 'Want to know more')!.click();
+      cleanup();
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      // The late response must not trigger the follow-up exchanges refresh.
+      expect(exchangesSpy).not.toHaveBeenCalled();
+    } finally {
+      try {
+        cleanup();
+      } catch {
+        // Already unmounted above; teardown itself must stay safe.
+      }
+    }
+  });
+
+  it('ignores delivered events after unmount without throwing', async () => {
+    const base = await admitted();
+    const { client, handler } = captureEvents(base);
+    const { cleanup } = render(client);
+    await tick();
+    await tick();
+    cleanup();
+    expect(() =>
+      handler()!({
+        type: 'key-decision',
+        peer: 'member-ana',
+        result: { status: 'accepted' },
+      }),
+    ).not.toThrow();
+    await tick();
+  });
+
+  it('survives repeated identical key decisions without duplicate keys', async () => {
+    const base = await admitted();
+    const warnings: string[] = [];
+    const errors: string[] = [];
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      errors.push(args.map(String).join(' '));
+    });
+    const { client, handler } = captureEvents(base);
+    const { target, cleanup } = render(client);
+    try {
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Private profile exchanges/));
+      const rowsBefore = target.querySelectorAll('.key-list li').length;
+      const decision = {
+        type: 'key-decision' as const,
+        peer: 'member-ana',
+        result: { status: 'accepted' as const },
+      };
+      handler()!(decision);
+      handler()!(decision);
+      await tick();
+      await tick();
+      await vi.waitFor(() =>
+        expect(target.querySelectorAll('.key-list li').length).toBe(rowsBefore),
+      );
+      expect(warnings.join('\n')).not.toMatch(/duplicate/i);
+      expect(errors.join('\n')).not.toMatch(/duplicate/i);
+    } finally {
+      cleanup();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
     }
   });
 
@@ -227,29 +359,48 @@ describe('forum discovery', () => {
     }
   });
 
-  it('shows the full owner reason for incoming key decisions with look-back', async () => {
+  it('discloses the full owner reason only for explicit incoming exchanges', async () => {
     const base = await admitted();
-    let handler: CmsgEventHandler | null = null;
-    const withCapture: CmsgClient = {
-      ...base,
-      subscribe: (next) => {
-        handler = next;
-        return base.subscribe(next);
+    const realExchanges = base.profileExchanges.bind(base);
+    const incomingRejected: ProfileExchange = {
+      id: 'exchange-incoming-rejected-1',
+      peer: 'member-rin',
+      handle: 'rin-reads',
+      direction: 'incoming',
+      result: {
+        status: 'rejected',
+        failingField: 'age',
+        reason: 'Age 29 is below the minimum 50.',
       },
     };
-    const { target, cleanup } = render(withCapture);
+    const withIncoming: CmsgClient = {
+      ...base,
+      profileExchanges: async () => [...(await realExchanges()), incomingRejected],
+    };
+    const { target, cleanup } = render(withIncoming);
     try {
       await vi.waitFor(() => expect(target.textContent).toMatch(/Private profile exchanges/));
-      expect(target.textContent).toMatch(/ana-walks/);
-      handler!({
-        type: 'key-decision',
-        peer: 'member-ana',
-        result: { status: 'rejected', failingField: 'age', reason: 'Age 34 is below the minimum 50.' },
-      });
+      // The incoming owner reason is shown in full.
       await vi.waitFor(() =>
-        expect(target.textContent).toMatch(/Age 34 is below the minimum 50/),
+        expect(target.textContent).toMatch(/Age 29 is below the minimum 50/),
       );
-      expect(target.textContent).toMatch(/look back/);
+      // A rejected incoming request must not claim the requester profile stays
+      // available for look-back: only the accepted seed exchange says so.
+      expect(target.textContent?.match(/look back at them/g)?.length ?? 0).toBe(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('never renders a reason for an outgoing refusal, only the failing field', async () => {
+    const client = await admitted();
+    await client.saveRules([{ field: 'age', min: 50, max: 60 }]);
+    const { target, cleanup } = render(client);
+    try {
+      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      buttonByName(target, 'Want to know more')!.click();
+      await vi.waitFor(() => expect(target.textContent).toMatch(/Not a match on: age/));
+      expect(target.textContent).not.toMatch(/Reason:/);
     } finally {
       cleanup();
     }

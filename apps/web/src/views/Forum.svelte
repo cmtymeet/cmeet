@@ -31,9 +31,6 @@
   let entries: PublicCard[] = $state([]);
   let cursor: string | null = $state(null);
   let exchanges: ProfileExchange[] = $state([]);
-  let liveDecisions: { peer: MemberId; result: KeyRequestResult }[] = $state([]);
-
-  type MemberId = string;
 
   let loading = $state(true);
   let loadingMore = $state(false);
@@ -50,7 +47,11 @@
   let errorRef: HTMLDivElement | null = $state(null);
 
   // Presentation request generation: stale async filter results are ignored.
+  // Reset/delta events invalidate outstanding searches so older responses
+  // cannot resurrect departed members.
   let requestGen = 0;
+  let exchangeGen = 0;
+  let alive = true;
 
   $effect(() => {
     if (error && errorRef) errorRef.focus();
@@ -133,10 +134,20 @@
     return merged;
   }
 
+  /** Clear per-peer result actions that a replacement search would leave stale. */
+  function clearStaleResults() {
+    keyResults = {};
+    waveOutcomes = {};
+    selectedPeer = null;
+    exchangeNote = '';
+    waveNote = '';
+  }
+
   async function search(reset: boolean) {
     const gen = ++requestGen;
     error = '';
     if (reset) {
+      clearStaleResults();
       loading = true;
     } else {
       loadingMore = true;
@@ -145,7 +156,7 @@
     const at = reset ? null : cursor;
     try {
       const page = await client.discover(snapshot, at);
-      if (gen !== requestGen) return;
+      if (!alive || gen !== requestGen) return;
       if (reset) {
         entries = page.entries;
       } else {
@@ -153,10 +164,10 @@
       }
       cursor = page.cursor;
     } catch (e) {
-      if (gen !== requestGen) return;
+      if (!alive || gen !== requestGen) return;
       error = e instanceof Error ? e.message : s.discoveryFailed;
     } finally {
-      if (gen !== requestGen) return;
+      if (!alive || gen !== requestGen) return;
       loading = false;
       loadingMore = false;
     }
@@ -170,16 +181,24 @@
   }
 
   async function reloadExchanges() {
+    const gen = ++exchangeGen;
     try {
-      exchanges = await client.profileExchanges();
+      const next = await client.profileExchanges();
+      if (!alive || gen !== exchangeGen) return;
+      exchanges = next;
     } catch {
       // Exchanges stay as they are; discovery errors are reported separately.
     }
   }
 
   function onEvent(event: CmsgEvent) {
+    if (!alive) return;
     if (event.type === 'matches') {
+      // Invalidate outstanding searches first: an older page resolving later
+      // must not resurrect members this reset/delta already removed.
+      requestGen += 1;
       if (event.reset) {
+        clearStaleResults();
         entries = event.page.entries;
         cursor = event.page.cursor;
       } else {
@@ -194,7 +213,9 @@
       return;
     }
     if (event.type === 'key-decision') {
-      liveDecisions = [{ peer: event.peer, result: event.result }, ...liveDecisions].slice(0, 5);
+      // key-decision carries no direction: never infer owner-side disclosure
+      // from reason presence. Refresh exchanges; only an explicit incoming
+      // exchange direction may display the full owner reason.
       void reloadExchanges();
     }
   }
@@ -206,16 +227,20 @@
     error = '';
     try {
       const result = await client.requestPrivateKey(memberId);
+      if (!alive) return;
       keyResults = { ...keyResults, [memberId]: result };
       await reloadExchanges();
+      if (!alive) return;
       if (result.status === 'accepted') {
         exchangeNote = s.keyAccepted;
       } else {
         exchangeNote = `${s.keyRejectedPrefix} ${result.failingField ?? s.failingFieldLabel}. ${s.keyRejectedSuffix}`;
       }
     } catch (e) {
+      if (!alive) return;
       error = e instanceof Error ? e.message : s.keyFailed;
     } finally {
+      if (!alive) return;
       keyBusy = { ...keyBusy, [memberId]: false };
     }
   }
@@ -237,29 +262,40 @@
     error = '';
     try {
       const wave = await client.sendWave(memberId, message);
+      if (!alive) return;
       waveOutcomes = { ...waveOutcomes, [memberId]: wave };
       waveDrafts = { ...waveDrafts, [memberId]: '' };
       waveNote = `${s.waveSentPrefix} ${wave.state}. ${wave.reason ?? ''}`.trim();
     } catch (e) {
+      if (!alive) return;
       waveNote = e instanceof Error ? e.message : s.waveFailed;
     } finally {
+      if (!alive) return;
       waveBusy = { ...waveBusy, [memberId]: false };
     }
   }
 
   onMount(() => {
+    alive = true;
     const detach = client.subscribe(onEvent);
     void (async () => {
       try {
-        schema = await client.schema();
+        const nextSchema = await client.schema();
+        if (!alive) return;
+        schema = nextSchema;
         await reloadExchanges();
+        if (!alive) return;
         await search(true);
       } catch (e) {
+        if (!alive) return;
         error = e instanceof Error ? e.message : s.discoveryFailed;
         loading = false;
       }
     })();
-    return detach;
+    return () => {
+      alive = false;
+      detach();
+    };
   });
 </script>
 
@@ -281,12 +317,6 @@
   {/if}
   {#if exchangeNote}<Notice tone="info">{exchangeNote}</Notice>{/if}
   {#if waveNote}<Notice tone="info">{waveNote}</Notice>{/if}
-
-  {#each liveDecisions.filter((d) => d.result.reason) as decision (decision.peer + (decision.result.reason ?? ''))}
-    <Notice tone="info">
-      {s.reasonLabel}: {decision.result.reason} {s.lookBackIncomingNote}
-    </Notice>
-  {/each}
 
   {#if schema}
     <form aria-label={s.filters} onsubmit={(e) => { e.preventDefault(); void search(true); }}>
@@ -381,7 +411,6 @@
               label={s.waveLabel}
               value={waveDrafts[entry.memberId] ?? ''}
               multiline
-              maxlength={280}
               oninput={(v) => (waveDrafts = { ...waveDrafts, [entry.memberId]: v }))}
             />
             <div class="row">
@@ -404,7 +433,12 @@
     </div>
     {#if cursor}
       <div class="row">
-        <Button busy={loadingMore} busyLabel={s.loadingMore} onclick={() => void search(false)}>
+        <Button
+          busy={loadingMore}
+          busyLabel={s.loadingMore}
+          disabled={loading || loadingMore}
+          onclick={() => void search(false)}
+        >
           {s.loadMore}
         </Button>
       </div>
@@ -424,7 +458,10 @@
               · {exchange.result.status === 'accepted' ? s.acceptedLabel : s.rejectedLabel}
             </span>
             {#if exchange.direction === 'incoming' && exchange.result.reason}
-              <p>{s.reasonLabel}: {exchange.result.reason} {s.lookBackIncomingNote}</p>
+              <p>{s.reasonLabel}: {exchange.result.reason}</p>
+              {#if exchange.result.status === 'accepted'}
+                <p class="muted">{s.lookBackIncomingNote}</p>
+              {/if}
             {:else if exchange.direction === 'incoming' && exchange.result.status === 'accepted'}
               <p class="muted">{s.lookBackIncomingNote}</p>
             {:else if exchange.result.status === 'rejected'}
