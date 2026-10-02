@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AdminRoles from './AdminRoles.svelte';
   import { onDestroy, tick } from 'svelte';
   import type {
     CmsgClient,
@@ -356,6 +357,7 @@
       <Button busy={adminBusy} disabled={controlsDisabled} onclick={() => void addAdmin()}>{s.addAdmin}</Button>
     {/if}
   {/if}
+  {#if signedIn && selected}<AdminRoles {client} communityId={selected} />{/if}
 </section>
 
 <style>

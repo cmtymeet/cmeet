@@ -23,6 +23,7 @@ export async function createClient(): Promise<CmsgClient | null> {
       incomingReleaseState: params.get('dev-incoming') === 'reserved' ? 'reserved' : undefined,
       messageState: message === 'queued' || message === 'stored' || message === 'received' ? message : undefined,
       failActions: params.getAll('dev-fail'),
+      communityScope: window.location.hostname.startsWith('root.') || params.get('dev-scope') === 'root' ? 'root' : 'community',
     });
   }
   return null;
@@ -39,6 +40,8 @@ export type Route =
   | { name: 'groups' }
   | { name: 'group'; id: string }
   | { name: 'devices' }
+  | { name: 'admin' }
+  | { name: 'admin-board' }
   | { name: 'admin-schema' }
   | { name: 'root' }
   | { name: 'settings' };
@@ -57,7 +60,8 @@ export function parseHash(hash: string): Route {
     case 'chat': return { name: 'chat', peer: decoded };
     case 'groups': return tail ? { name: 'group', id: decoded } : { name: 'groups' };
     case 'devices': return { name: 'devices' };
-    case 'admin': return { name: 'admin-schema' };
+    case 'admin': return { name: tail === 'schema' ? 'admin-schema' : 'admin' };
+    case 'board': return { name: 'admin-board' };
     case 'root': return { name: 'root' };
     case 'settings': return { name: 'settings' };
     default: return { name: 'arrival' };
@@ -76,6 +80,8 @@ export function routeHref(route: Route): string {
     case 'groups': return '#/groups';
     case 'group': return `#/groups/${encodeURIComponent(route.id)}`;
     case 'devices': return '#/devices';
+    case 'admin': return '#/admin';
+    case 'admin-board': return '#/board';
     case 'admin-schema': return '#/admin/schema';
     case 'root': return '#/root';
     case 'settings': return '#/settings';
@@ -85,9 +91,11 @@ export function routeHref(route: Route): string {
 // Garden selection is presentation only; cmsg authenticates every role action.
 export function routeForLocation(hash: string, hostname: string, development = false): Route {
   if (hostname.startsWith('admin.root.')) return { name: 'root' };
-  if (hostname.startsWith('admin.')) return { name: 'admin-schema' };
+  if (hostname.startsWith('admin.')) return { name: hash === '#/admin/schema' ? 'admin-schema' : 'admin' };
   const route = parseHash(hash);
-  if (!development && (route.name === 'root' || route.name === 'admin-schema')) return { name: 'arrival' };
+  if (hostname.startsWith('root.') && route.name === 'arrival') return {name: 'admin-board'};
+  if (!development && (route.name === 'admin-board' && !hostname.startsWith('root.'))) return {name: 'arrival'};
+  if (!development && (route.name === 'root' || route.name === 'admin' || route.name === 'admin-schema')) return { name: 'arrival' };
   return route;
 }
 

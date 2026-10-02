@@ -59,6 +59,7 @@ export interface GateStep {
 
 export interface LobbyState {
   handle: Handle;
+  handleChange?: HandleChangeNotice;
   gates: GateStep[];
   profileComplete: boolean;
   devices: DeviceInfo[];
@@ -373,6 +374,28 @@ export interface SchemaImpact {
   note: string;
 }
 
+export type MemberRole = 'member' | 'admin' | 'root';
+
+export interface HandleChangeNotice {
+  reason: string;
+  deadlineLabel: string;
+}
+
+export interface AdminAccess {
+  communityId: string;
+  assignableRoles: MemberRole[];
+  canRequireHandleChange: boolean;
+  members: { id: string; label: string; role: MemberRole; editable: boolean }[];
+}
+
+/** The root board uses a separate, unlinkable membership, not the role root. */
+export interface RootBoardAccess {
+  state: 'eligible' | 'active' | 'renewal-needed' | 'unavailable';
+  message: string;
+  renewalLabel: string;
+  canEnter: boolean;
+}
+
 export interface RootCommunity {
   communityId: string;
   displayName: string;
@@ -489,6 +512,11 @@ export interface CmsgClient {
 
   /* Admin (community scope) */
   signInRole(role: 'admin' | 'root'): Promise<void>;
+  adminAccess(communityId?: string): Promise<AdminAccess>;
+  adminSetRole(memberId: string, role: MemberRole, communityId?: string): Promise<AdminAccess>;
+  requireHandleChange(memberId: string, reason: string, communityId?: string): Promise<HandleChangeNotice>;
+  rootBoardAccess(): Promise<RootBoardAccess>;
+  enterRootBoard(): Promise<JoinWithVoucherResult>;
   adminSchema(): Promise<ProfileSchema>;
   adminSaveSchema(schema: ProfileSchema): Promise<SchemaImpact>;
 

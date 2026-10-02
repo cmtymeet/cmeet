@@ -16,7 +16,7 @@ async function join(page: import('@playwright/test').Page) {
 // labelled sample preview and API-reported impact. No image style is offered.
 test('schema detail editing with live sample preview', async ({ page }) => {
   await join(page);
-  await page.evaluate(() => { location.hash = '#/admin'; });
+  await page.evaluate(() => { location.hash = '#/admin/schema'; });
   await expect(page.getByRole('heading', { name: 'Profile schema' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Sign in as admin' }).click();

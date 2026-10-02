@@ -8,7 +8,7 @@ describe('shell presentation', () => {
   it('keeps production portals in their own gardens', () => {
     expect(routeForLocation('#/root', 'community.example')).toEqual({ name: 'arrival' });
     expect(routeForLocation('#/admin', 'community.example')).toEqual({ name: 'arrival' });
-    expect(routeForLocation('#/forum', 'admin.community.example')).toEqual({ name: 'admin-schema' });
+    expect(routeForLocation('#/forum', 'admin.community.example')).toEqual({ name: 'admin' });
     expect(routeForLocation('#/admin', 'admin.root.example')).toEqual({ name: 'root' });
     expect(routeForLocation('#/root', 'localhost', true)).toEqual({ name: 'root' });
   });

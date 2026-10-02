@@ -19,7 +19,7 @@ test('malformed route, keyboard skip link and 320px layout', async ({ page }) =>
 });
 
 test('portal entry asks for its own passkey sign-in without a member voucher', async ({ page }) => {
-  await page.goto('/#/admin');
+  await page.goto('/#/admin/schema');
   await expect(page.getByRole('button', { name: 'Sign in as admin' })).toBeVisible();
   await expect(page.getByLabel('Invitation voucher')).toHaveCount(0);
   await page.getByRole('button', { name: 'Sign in as admin' }).click();
