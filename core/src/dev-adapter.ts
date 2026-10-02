@@ -13,6 +13,10 @@
  */
 
 import type {
+  AdminAccess,
+  HandleChangeNotice,
+  MemberRole,
+  RootBoardAccess,
   ChatMessage,
   CmsgClient,
   CmsgEvent,
@@ -66,6 +70,10 @@ export interface DevAdapterOptions {
   incomingReleaseState?: 'reserved' | 'released';
   releaseDelayMs?: number;
   groups?: GroupView[];
+  /** Explicit fixture capabilities, never authentication for a deployed client. */
+  role?: MemberRole;
+  boardState?: RootBoardAccess['state'];
+  communityScope?: 'community' | 'root';
 }
 
 interface SeedMember {
@@ -253,6 +261,20 @@ export function createDevCmsg(options: DevAdapterOptions = {}): CmsgClient {
   let blocked = new Set<string>();
   let relations = new Map<string, Contact['relation']>();
   const roles = new Set<'admin' | 'root'>();
+  let handleChange: HandleChangeNotice | undefined;
+  let boardState = options.boardState ?? 'eligible';
+  const roleMembers = new Map<string, AdminAccess['members']>();
+  function access(scope = 'garden-neighbours'): AdminAccess {
+    if (!roles.has('admin') && !roles.has('root')) throw new Error('Sign in to the admin garden first.');
+    if (scope !== 'garden-neighbours' && !roles.has('root')) throw new Error('This garden belongs to another community.');
+    if (!roleMembers.has(scope)) roleMembers.set(scope, [
+      {id: 'role-admin', label: 'Community administrator', role: 'admin', editable: true},
+      {id: 'role-root', label: 'Platform owner', role: 'root', editable: true},
+    ]);
+    return {communityId: scope, assignableRoles: roles.has('root') ? ['member', 'admin', 'root'] : ['member', 'admin'],
+      canRequireHandleChange: true,
+      members: roleMembers.get(scope)!.map(member => ({...member, editable: member.role !== 'root' || roles.has('root')}))};
+  }
   let waves: Wave[] = [
     {
       id: 'wave-seed-1',
@@ -425,6 +447,7 @@ export function createDevCmsg(options: DevAdapterOptions = {}): CmsgClient {
   function lobbyState(): LobbyState {
     return {
       handle,
+      handleChange: handleChange ? structuredClone(handleChange) : undefined,
       gates: [
         {
           id: 'voucher',
@@ -1184,9 +1207,61 @@ export function createDevCmsg(options: DevAdapterOptions = {}): CmsgClient {
 
     async signInRole(role: 'admin' | 'root') {
       failIf('signInRole');
+      if (options.role === 'member' || (options.role === 'admin' && role === 'root')) throw new Error('This role is not available to this membership.');
       // Fixture passkey ceremony: any enrolled device key works equally.
       roles.clear();
       roles.add(role);
+    },
+
+    async adminAccess(communityId?: string) {
+      failIf('adminAccess');
+      return access(communityId);
+    },
+
+    async adminSetRole(memberId: string, role: MemberRole, communityId?: string) {
+      failIf('adminSetRole');
+      const view = access(communityId);
+      const existing = view.members.find(member => member.id === memberId);
+      if (!memberId.trim()) throw new Error('Choose a member.');
+      if (!view.assignableRoles.includes(role) || existing?.editable === false) throw new Error('Only roots can appoint or remove roots.');
+      const next = view.members.filter(member => member.id !== memberId);
+      next.push({id: memberId, label: memberId, role, editable: true});
+      roleMembers.set(view.communityId, next);
+      return access(communityId);
+    },
+
+    async requireHandleChange(memberId: string, reason: string, communityId?: string) {
+      failIf('requireHandleChange');
+      access(communityId);
+      if (!memberId.trim() || !reason.trim()) throw new Error('Choose a member and explain why a change is required.');
+      const notice = {reason: reason.trim(), deadlineLabel: 'Within 7 days of this request'};
+      if (memberId === 'me') {
+        const ownLobby = await this.lobby();
+        handleChange = notice;
+        emit({type: 'lobby', lobby: {...ownLobby, handleChange: structuredClone(notice)}});
+      }
+      return structuredClone(notice);
+    },
+
+    async rootBoardAccess() {
+      failIf('rootBoardAccess');
+      if (options.communityScope !== 'root') throw new Error('Open the root community to use the board.');
+      return {state: boardState, canEnter: boardState !== 'unavailable',
+        message: 'Board membership uses an unlinkable credential. The board does not learn which community you administer.',
+        renewalLabel: 'Membership is renewed every 30 days while you remain an admin.'};
+    },
+
+    async enterRootBoard() {
+      failIf('enterRootBoard');
+      if (options.communityScope !== 'root') throw new Error('Open the root community to use the board.');
+      if (boardState === 'unavailable') throw new Error('A current admin credential is needed to enter the board.');
+      boardState = 'active';
+      // Development-only projection of a separate root-community admission.
+      joined = true;
+      handle = 'board-member';
+      const lobby = lobbyState();
+      emit({type: 'lobby', lobby});
+      return {lobby};
     },
 
     async adminSchema() {

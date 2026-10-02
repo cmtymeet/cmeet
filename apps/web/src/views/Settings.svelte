@@ -34,6 +34,6 @@
     <Button variant="danger" {busy} onclick={() => void signOut()}>Sign out</Button>
   </div>
   {#if import.meta.env.DEV}
-    <details><summary>Development portals</summary><p><a href="#/admin">Schema</a> · <a href="#/root">Root</a></p></details>
+    <details><summary>Development portals</summary><p><a href="#/admin">Admin</a> · <a href="#/admin/schema">Schema</a> · <a href="#/root">Root</a></p></details>
   {/if}
 </section>

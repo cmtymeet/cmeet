@@ -44,7 +44,7 @@ test('groups, devices, admin schema and root', async ({ page }) => {
   await expect(page.getByText('Spare phone')).toBeVisible();
 
   // The admin schema editor reorders questions and previews the member view.
-  await page.evaluate(() => { location.hash = '#/admin'; });
+  await page.evaluate(() => { location.hash = '#/admin/schema'; });
   await expect(page.getByRole('heading', { name: 'Profile schema' })).toBeVisible();
   await page.getByRole('button', { name: 'Sign in as admin' }).click();
   await expect(page.getByRole('heading', { name: 'Live preview' })).toBeVisible();

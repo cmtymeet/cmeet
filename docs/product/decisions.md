@@ -187,3 +187,24 @@ are identified where they could otherwise change the meaning of a requirement.
 | Global holder loss | Loss of the global wallet holder secret also causes permanent global lockout in the recorded design. Public warnings must distinguish this from losing one community credential. | Decided (recorded constraint) / Open (UX) | 2026-09-30 |
 | Handles versus identity | The source records a coarse lease renewed with credentials, two-year expiry/release language, and reuse of released handles after two years. Handle reuse never revives the old member ID or frees burned uniqueness fingerprints. Exact start points for the periods are ambiguous. | Decided (principles) / Open (timing) | 2026-09-29–30 |
 | Self-ban | Voluntary closure is permanent, freshly passkey-confirmed and prominently warned. Enforcement is only as strong as uniqueness gates; voucher-only communities cannot reliably recognize a returning person. | Decided (closure) / Open (limit communication) | 2026-09-29–30 |
+
+### Admin gardens and the shared board
+
+Every community membership has one role: member, admin or root. The community
+admin garden is `admin.<community>.<base>`; the platform garden is
+`admin.root.<base>`. Portal passkey sign-in is the access ceremony. Admins can
+appoint and remove admins; only roots can appoint or remove roots. Roles have
+no public badges, and there is no admin action log.
+
+The community at `root.<base>` is the shared admin board, distinct from platform
+root privileges. Its admission uses a non-transferable, blindly issued credential
+bound to the same holder as the passport. It renews every 30 days while eligible
+and does not identify the source community. The frontend asks cmsg to enter that
+community and continues through the ordinary lobby and member surfaces. It never
+issues credentials or decides admission.
+
+Admins may require a handle change with a reason for the member. The member
+chooses within seven days; otherwise the backend assigns a neutral placeholder.
+The admin never chooses a replacement handle. The frontend currently exercises
+these surfaces through its provisional typed port and development fixtures;
+production remains unavailable pending the real browser runtime.

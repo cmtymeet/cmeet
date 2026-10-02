@@ -14,6 +14,8 @@
   import Groups from './views/Groups.svelte';
   import GroupDetail from './views/GroupDetail.svelte';
   import Devices from './views/Devices.svelte';
+  import Admin from './views/Admin.svelte';
+  import AdminBoard from './views/AdminBoard.svelte';
   import AdminSchema from './views/AdminSchema.svelte';
   import Root from './views/Root.svelte';
   import Settings from './views/Settings.svelte';
@@ -44,7 +46,7 @@
   const failed = $derived(session.failed);
   const joined = $derived(session.snapshot.joined);
   const needsArrival = $derived(
-    !['arrival', 'settings', 'root', 'admin-schema'].includes(route.name) && !joined,
+    !['arrival', 'settings', 'root', 'admin', 'admin-board', 'admin-schema'].includes(route.name) && !joined,
   );
 
   const admitted = $derived(session.snapshot.lobby?.admitted === true);
@@ -119,6 +121,10 @@
       <GroupDetail client={session.client} id={route.id} />
     {:else if route.name === 'devices'}
       <Devices client={session.client} />
+    {:else if route.name === 'admin'}
+      <Admin client={session.client} />
+    {:else if route.name === 'admin-board'}
+      <AdminBoard client={session.client} onjoined={() => { session.markJoined(); go({name: 'lobby'}); }} />
     {:else if route.name === 'admin-schema'}
       <AdminSchema client={session.client} />
     {:else if route.name === 'root'}
