@@ -331,7 +331,7 @@ describe('groups list', () => {
     const refusing = render(createDevCmsg({ failActions: ['groups'] }));
     try {
       await vi.waitFor(() => expect(refusing.target.querySelector('[role="alert"]')).not.toBeNull());
-      expect(refusing.target.textContent).toMatch(/unavailable/);
+      expect(refusing.target.textContent).toMatch(/Fixture failure/);
       expect(refusing.target.textContent).not.toMatch(/No groups yet/);
     } finally {
       refusing.cleanup();

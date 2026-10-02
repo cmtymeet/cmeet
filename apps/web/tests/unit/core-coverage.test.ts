@@ -374,8 +374,13 @@ describe('core coverage: forum discovery', () => {
     const handles = (await client.discover([])).entries.map((e) => e.handle);
     expect(handles).toContain('ana-walks');
     expect(handles).toContain('tom-cooks');
-    expect(handles).not.toContain('rin-reads');
+    expect(handles).toContain('rin-reads');
     expect(handles).not.toContain('jo-runs');
+    await client.saveRules([{ field: 'age', min: 30 }]);
+    expect((await client.discover([])).entries.map((entry) => entry.handle)).not.toContain('rin-reads');
+    await client.publishProfile({ ...PROFILE, weekend: 'Hiking' });
+    await client.saveRules([]);
+    expect((await client.discover([])).entries.map((entry) => entry.handle)).not.toContain('rin-reads');
   });
 
   it('applies one-sided filters on top of two-way matching', async () => {
@@ -769,9 +774,9 @@ describe('core coverage: threads', () => {
   it('creates blocked and closed thread views from the relation', async () => {
     const client = createDevCmsg();
     await client.joinWithVoucher(JOIN);
-    await client.blockMember('ghost-peer');
+    await client.blockMember('member-rin');
     await client.closeConversation('member-ana');
-    expect((await client.thread('ghost-peer')).state).toBe('blocked');
+    expect((await client.thread('member-rin')).state).toBe('blocked');
     expect((await client.thread('member-ana')).state).toBe('closed');
     expect((await client.thread('member-ana')).established).toBe(false);
   });

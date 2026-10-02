@@ -572,7 +572,7 @@ describe('ProfilePreview flashcard front and back', () => {
     const { target, cleanup } = render(ProfilePreview, { schema: tinySchema, values });
     try {
       await tick();
-      expect(target.querySelector('[role="tablist"]')!.getAttribute('aria-label')).toMatch(/Preview side/);
+      expect(target.querySelector('[role="tablist"]')!.getAttribute('aria-label')).toBe('Profile preview side');
       expect(target.querySelector('section')!.getAttribute('aria-label')).toMatch(/public profile/);
     } finally {
       await cleanup();

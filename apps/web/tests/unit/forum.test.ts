@@ -56,7 +56,7 @@ function captureEvents(base: CmsgClient): { client: CmsgClient; handler: () => C
 }
 
 async function fill(target: HTMLElement, id: string, value: string) {
-  const input = target.querySelector(`#${CSS.escape(id)}`) as
+  const input = [...target.querySelectorAll('[id]')].find((element) => element.id === id) as
     | HTMLInputElement
     | HTMLSelectElement
     | HTMLTextAreaElement
@@ -386,9 +386,10 @@ describe('forum discovery', () => {
       await vi.waitFor(() => expect(target.textContent).toMatch(/Key accepted/));
       expect(target.textContent).toMatch(/Front: public profile/);
 
-      await client.saveRules([{ field: 'age', min: 50, max: 60 }]);
       buttonByName(target, 'Refresh')!.click();
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(buttonByName(target, 'Want to know more')).not.toBeNull());
+      // Rules can change after discovery. The owner rechecks on the key request.
+      await client.saveRules([{ field: 'age', min: 50, max: 60 }]);
       buttonByName(target, 'Want to know more')!.click();
       await vi.waitFor(() => expect(target.textContent).toMatch(/Not a match on:/));
       expect(target.textContent).toMatch(/Your matching rules stay private/);
@@ -433,10 +434,10 @@ describe('forum discovery', () => {
 
   it('never renders a reason for an outgoing refusal, only the failing field', async () => {
     const client = await admitted();
-    await client.saveRules([{ field: 'age', min: 50, max: 60 }]);
     const { target, cleanup } = render(client);
     try {
-      await vi.waitFor(() => expect(target.textContent).toMatch(/ana-walks/));
+      await vi.waitFor(() => expect(buttonByName(target, 'Want to know more')).not.toBeNull());
+      await client.saveRules([{ field: 'age', min: 50, max: 60 }]);
       buttonByName(target, 'Want to know more')!.click();
       await vi.waitFor(() => expect(target.textContent).toMatch(/Not a match on: age/));
       expect(target.textContent).not.toMatch(/Reason:/);
@@ -485,7 +486,7 @@ describe('forum discovery', () => {
     const first = render(failingDiscover);
     try {
       await vi.waitFor(() => expect(first.target.querySelector('[role="alert"]')).not.toBeNull());
-      expect(first.target.textContent).toMatch(/unavailable/);
+      expect(first.target.textContent).toMatch(/Fixture failure/);
     } finally {
       first.cleanup();
     }

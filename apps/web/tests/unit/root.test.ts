@@ -303,8 +303,8 @@ describe('root settings surface', () => {
       expect(spy).toHaveBeenCalledWith('garden-neighbours', 'fixture-admin', true);
 
       buttonByName(target, 'Remove fixture-admin')?.click();
-      await vi.waitFor(() => expect(target.textContent).toMatch(/Saved/));
-      expect(target.textContent).not.toMatch(/fixture-admin/);
+      await vi.waitFor(() => expect(target.textContent).not.toMatch(/fixture-admin/));
+      expect(target.textContent).toMatch(/Saved/);
       expect(spy).toHaveBeenLastCalledWith('garden-neighbours', 'fixture-admin', false);
     } finally {
       cleanup();
