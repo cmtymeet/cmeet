@@ -12,8 +12,8 @@ variables:
   CI_TOOL_BINARY: {default: ""}
   CI_TOOL_BINARY_SHA256: {default: ""}
   CHECKS: {default: private-cpky-native}
-  CI_SUPPLEMENT_SETUP: {default: ""}
-  CI_SUPPLEMENT_SHA256: {default: ""}
+  SUPPLEMENT_SETUP: {default: ""}
+  SUPPLEMENT_SHA256: {default: ""}
   CI_JOBS: {default: ""}
   CI_TEST_THREADS: {default: ""}
   CI_MEMORY_MB: {default: ""}
@@ -40,15 +40,15 @@ steps:
         test -n "$CI_TOOL_BINARY_SHA256"
         printf '%s  %s\n' "$CI_TOOL_BINARY_SHA256" "$CI_TOOL_BINARY" | sha256sum --check --strict
         test "$("$CI_TOOL_BINARY" source-revision)" = "$CCID_REVISION"
-        if [ -n "$${CI_SUPPLEMENT_SETUP:-}" ]; then
-          case "$$CI_SUPPLEMENT_SETUP" in
+        if [ -n "$${SUPPLEMENT_SETUP:-}" ]; then
+          case "$$SUPPLEMENT_SETUP" in
             /nix/store/*-cmty-ci-tools/share/cmty-ci-tools/setup.sh) ;;
             *) exit 2 ;;
           esac
-          printf '%s  %s\n' "$${CI_SUPPLEMENT_SHA256:?}" "$$CI_SUPPLEMENT_SETUP" | sha256sum --check --strict
-          . "$$CI_SUPPLEMENT_SETUP"
+          printf '%s  %s\n' "$${SUPPLEMENT_SHA256:?}" "$$SUPPLEMENT_SETUP" | sha256sum --check --strict
+          . "$$SUPPLEMENT_SETUP"
         else
-          test -z "$${CI_SUPPLEMENT_SHA256:-}"
+          test -z "$${SUPPLEMENT_SHA256:-}"
         fi
         TMPDIR="$${TMPDIR:-/tmp}"
         export TMPDIR
