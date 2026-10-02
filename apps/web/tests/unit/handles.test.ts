@@ -100,7 +100,7 @@ describe('handle presentation', () => {
       await vi.waitFor(() => expect(target.textContent).toContain('first 7 days'));
       type(target, 'new-handle', 'short');
       press(target, 'Change handle').click();
-      await vi.waitFor(() => expect(target.textContent).toContain('8 to 32'));
+      await vi.waitFor(() => expect(target.querySelector('[role="alert"]')?.textContent).toContain('8 to 32'));
       type(target, 'new-handle', 'brand-new-handle');
       press(target, 'Change handle').click();
       await vi.waitFor(() => expect(target.textContent).toContain('Your handle was changed.'));
